@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# uv lockfile
+uv.lock
+
+# Virtual environments
+.venv
+.venv-*
+venv/
+env/
+ENV/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Pre-commit
+.pre-commit-config.yaml.bak
+
+# Ruff cache
+.ruff_cache/
+
+# ADK
+.agent_studio_config
+
+# Conversation debug cache
+**/.conv-debug/
+
+# VS Code workspaces
+*.code-workspace

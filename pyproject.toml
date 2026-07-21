@@ -1,0 +1,110 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "adk-deployments"
+version = "0.1.0"
+description = "ADK-managed agent projects"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+  "polyai-adk>=0.25,<0.26",
+]
+
+[project.optional-dependencies]
+dev = [
+  "boto3>=1.26.0",
+  "coverage>=7.0.0",
+  "faker>=40.0.0",
+  "freezegun>=1.0.0",
+  "pre-commit>=3.0.0",
+  "pydantic>=2.0.0",
+  "pytest>=8.0.0",
+  "pytest-cov>=6.0.0",
+  "requests>=2.28.0",
+  "ruff==0.14.2",
+  "ty>=0.0.2",
+]
+
+[tool.coverage.run]
+omit = [
+  "**/_gen/**",
+  "**/imports.py",
+  "**/test_*.py",
+  "**/tests/**",
+]
+
+[tool.pytest.ini_options]
+filterwarnings = [
+  "ignore:.*datetime\\.datetime\\.utcfromtimestamp\\(\\) is deprecated.*:DeprecationWarning",
+  "ignore:.*datetime\\.datetime\\.utcnow\\(\\) is deprecated.*:DeprecationWarning",
+]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+src = [
+    "agents",
+]
+exclude = [
+    "**/imports.py",
+    "**/_gen/**",
+]
+
+[tool.ruff.lint]
+select = [
+  "E",   # pycodestyle errors
+  "W",   # pycodestyle warnings
+  "F",   # pyflakes
+  "I",   # isort
+  "B",   # flake8-bugbear
+  "C4",  # flake8-comprehensions
+  "UP",  # pyupgrade
+]
+ignore = [
+  "F403",  # `from imports import *` used - required by platform
+  "F405",  # Names from star imports may be undefined - required by platform
+  "E501",  # Line too long - disabled to allow longer lines
+  "UP007",  # Don't upgrade Optional[X] to X | None (requires Python 3.10+)
+  "UP045",  # Replace `typing.TypedDict` with `typing_extensions.TypedDict` or `typing.TypedDict`
+  "UP042",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["agents"]
+
+[tool.ruff.format]
+# Use double quotes (") for strings instead of single quotes (')
+quote-style = "double"
+# Use spaces for indentation instead of tabs
+indent-style = "space"
+# Don't skip the trailing comma in multi-line function calls/definitions
+# When false, keeps trailing commas which helps with cleaner diffs
+skip-magic-trailing-comma = false
+# Automatically detect line endings (LF on Unix/macOS, CRLF on Windows)
+line-ending = "auto"
+
+[tool.ty.rules]
+possibly-missing-attribute = "ignore"
+unsupported-operator = "ignore"
+unresolved-import = "ignore"
+invalid-argument-type = "ignore"
+invalid-assignment = "ignore"
+unresolved-reference = "ignore"
+invalid-method-override = "ignore"
+invalid-return-type = "ignore"
+deprecated = "ignore"
+unused-ignore-comment = "ignore"
+unresolved-attribute = "ignore"
+not-iterable = "ignore"
+too-many-positional-arguments = "ignore"
+
+[tool.ty.src]
+include = ["agents"]
+exclude = [
+  "**/imports.py",
+  "**/_gen/**",
+  "build/**",
+  "**/*.egg-info/**",
+]

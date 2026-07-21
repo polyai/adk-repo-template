@@ -1,0 +1,298 @@
+name: Deploy
+
+on:
+  merge_group:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      projects: ${{ steps.detect.outputs.projects }}
+      has_projects: ${{ steps.detect.outputs.has_projects }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed projects
+        id: detect
+        run: |
+          PROJECTS=$(.github/scripts/detect-changed-dirs.sh --prefix agents --depth 2 --range "${{ github.event.merge_group.base_sha }}" "${{ github.event.merge_group.head_sha }}" --format json)
+          echo "projects=$PROJECTS" >> $GITHUB_OUTPUT
+          if [ "$PROJECTS" != "[]" ] && [ -n "$PROJECTS" ]; then
+            echo "has_projects=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_projects=false" >> $GITHUB_OUTPUT
+          fi
+
+  lint-and-test:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_projects == 'true'
+    runs-on: ubuntu-latest
+    env:
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v7
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: |
+          uv venv
+          source .venv/bin/activate
+          uv pip install -e ".[dev]"
+
+      - name: Lint with ruff
+        run: |
+          source .venv/bin/activate
+          PROJECTS='${{ needs.detect-changes.outputs.projects }}'
+          PATHS=()
+          while IFS= read -r dir; do
+            [ -z "$dir" ] && continue
+            PATHS+=("agents/$dir")
+          done < <(echo "$PROJECTS" | jq -r '.[]')
+          if [ ${#PATHS[@]} -gt 0 ]; then
+            ruff check "${PATHS[@]}"
+          fi
+
+      - name: Format check with ruff
+        run: |
+          source .venv/bin/activate
+          PROJECTS='${{ needs.detect-changes.outputs.projects }}'
+          PATHS=()
+          while IFS= read -r dir; do
+            [ -z "$dir" ] && continue
+            PATHS+=("agents/$dir")
+          done < <(echo "$PROJECTS" | jq -r '.[]')
+          if [ ${#PATHS[@]} -gt 0 ]; then
+            ruff format --check "${PATHS[@]}"
+          fi
+
+      - name: Install prettier
+        run: npm install -g prettier@3.1.0
+
+      - name: Format check YAML with prettier
+        run: |
+          PROJECTS='${{ needs.detect-changes.outputs.projects }}'
+          PATHS=()
+          while IFS= read -r dir; do
+            [ -z "$dir" ] && continue
+            PATHS+=("agents/$dir/**/*.{yaml,yml}")
+          done < <(echo "$PROJECTS" | jq -r '.[]')
+          if [ ${#PATHS[@]} -gt 0 ]; then
+            prettier --check "${PATHS[@]}"
+          fi
+
+      - name: Type check with ty
+        run: |
+          PROJECTS='${{ needs.detect-changes.outputs.projects }}'
+          PATHS=()
+          while IFS= read -r dir; do
+            [ -z "$dir" ] && continue
+            PATHS+=("agents/$dir")
+          done < <(echo "$PROJECTS" | jq -r '.[]')
+          if [ ${#PATHS[@]} -gt 0 ]; then
+            uvx ty check "${PATHS[@]}"
+          fi
+
+      - name: Run tests
+        run: |
+          source .venv/bin/activate
+          .github/scripts/run-tests.sh '${{ needs.detect-changes.outputs.projects }}'
+
+  merge-as-branches:
+    needs: [detect-changes, lint-and-test]
+    if: needs.detect-changes.outputs.has_projects == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJson(needs.detect-changes.outputs.projects) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v7
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install ADK
+        run: |
+          uv venv
+          source .venv/bin/activate
+          uv pip install -e .
+
+      - name: Extract branch name
+        id: extract_branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          MERGE_QUEUE_REF="${{ github.event.merge_group.head_ref }}"
+          PR_NUMBER=$(echo "$MERGE_QUEUE_REF" | sed -n 's|.*/pr-\([0-9]*\)-.*|\1|p')
+
+          if [ -z "$PR_NUMBER" ]; then
+            echo "Failed to extract PR number from merge_group.head_ref: $MERGE_QUEUE_REF"
+            exit 1
+          fi
+
+          ORIGINAL_BRANCH=$(gh pr view "$PR_NUMBER" --json headRefName -q .headRefName)
+
+          if [ -z "$ORIGINAL_BRANCH" ]; then
+            echo "Failed to get original branch name for PR #$PR_NUMBER"
+            exit 1
+          fi
+
+          echo "Extracted PR number: $PR_NUMBER"
+          echo "Original branch name: $ORIGINAL_BRANCH"
+          echo "BRANCH_NAME=$ORIGINAL_BRANCH" >> $GITHUB_OUTPUT
+
+      - name: Check if AS branch exists
+        id: check_branch
+        env:
+          POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
+          POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
+          POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
+          POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
+          POLY_ADK_KEY_DEV: ${{ secrets.POLY_ADK_KEY_DEV }}
+          POLY_ADK_KEY_STAGING: ${{ secrets.POLY_ADK_KEY_STAGING }}
+          POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
+        run: |
+          source .venv/bin/activate
+          PROJECT_PATH="agents/${{ matrix.project }}"
+          BRANCH_NAME="${{ steps.extract_branch.outputs.BRANCH_NAME }}"
+
+          echo "Checking if branch $BRANCH_NAME exists for ${{ matrix.project }}..."
+          set +e
+          python .github/scripts/poly_adk_scripts/check_branch_exists.py "$PROJECT_PATH" "$BRANCH_NAME"
+          EXIT_CODE=$?
+          set -e
+
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo "Branch $BRANCH_NAME exists"
+            echo "exists=true" >> $GITHUB_OUTPUT
+          elif [ $EXIT_CODE -eq 1 ]; then
+            echo "Branch $BRANCH_NAME does not exist, skipping merge"
+            echo "exists=false" >> $GITHUB_OUTPUT
+          else
+            echo "Error checking branch existence"
+            exit 1
+          fi
+
+      - name: Push final state to AS branch
+        if: steps.check_branch.outputs.exists == 'true'
+        env:
+          POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
+          POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
+          POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
+          POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
+          POLY_ADK_KEY_DEV: ${{ secrets.POLY_ADK_KEY_DEV }}
+          POLY_ADK_KEY_STAGING: ${{ secrets.POLY_ADK_KEY_STAGING }}
+          POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
+        run: |
+          source .venv/bin/activate
+          python .github/scripts/poly_adk_scripts/push_to_branch.py \
+            "agents/${{ matrix.project }}" \
+            "${{ steps.extract_branch.outputs.BRANCH_NAME }}"
+
+      - name: Merge AS branch to main
+        if: steps.check_branch.outputs.exists == 'true'
+        env:
+          POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
+          POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
+          POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
+          POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
+          POLY_ADK_KEY_DEV: ${{ secrets.POLY_ADK_KEY_DEV }}
+          POLY_ADK_KEY_STAGING: ${{ secrets.POLY_ADK_KEY_STAGING }}
+          POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
+        run: |
+          source .venv/bin/activate
+          MERGE_MESSAGE=$(git log -1 ${{ github.event.merge_group.head_sha }} --pretty=format:%s)
+          python .github/scripts/poly_adk_scripts/merge_branch.py \
+            "agents/${{ matrix.project }}" \
+            "${{ steps.extract_branch.outputs.BRANCH_NAME }}" \
+            "$MERGE_MESSAGE"
+
+      - name: Verify AS branch deleted after merge
+        if: steps.check_branch.outputs.exists == 'true'
+        env:
+          POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
+          POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
+          POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
+          POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
+          POLY_ADK_KEY_DEV: ${{ secrets.POLY_ADK_KEY_DEV }}
+          POLY_ADK_KEY_STAGING: ${{ secrets.POLY_ADK_KEY_STAGING }}
+          POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
+        run: |
+          source .venv/bin/activate
+          PROJECT_PATH="agents/${{ matrix.project }}"
+          BRANCH_NAME="${{ steps.extract_branch.outputs.BRANCH_NAME }}"
+
+          echo "Verifying branch $BRANCH_NAME is deleted for ${{ matrix.project }}..."
+          set +e
+          python .github/scripts/poly_adk_scripts/check_branch_exists.py "$PROJECT_PATH" "$BRANCH_NAME"
+          EXIT_CODE=$?
+          set -e
+
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo "Branch $BRANCH_NAME still exists after merge"
+            exit 1
+          elif [ $EXIT_CODE -eq 1 ]; then
+            echo "Branch $BRANCH_NAME successfully deleted"
+          else
+            echo "Error checking branch existence"
+            exit 1
+          fi
+
+  deploy:
+    name: Verify all CI jobs passed or were skipped
+    needs: [detect-changes, lint-and-test, merge-as-branches]
+    runs-on: ubuntu-latest
+    if: always()
+    permissions:
+      contents: read
+    steps:
+      - name: Verify all CI jobs passed or were skipped
+        run: |
+          FAILED_JOBS=""
+
+          if [ "${{ needs.detect-changes.result }}" != "success" ] && [ "${{ needs.detect-changes.result }}" != "skipped" ]; then
+            FAILED_JOBS="${FAILED_JOBS}detect-changes "
+          fi
+
+          if [ "${{ needs.lint-and-test.result }}" != "success" ] && [ "${{ needs.lint-and-test.result }}" != "skipped" ]; then
+            FAILED_JOBS="${FAILED_JOBS}lint-and-test "
+          fi
+
+          if [ "${{ needs.merge-as-branches.result }}" != "success" ] && [ "${{ needs.merge-as-branches.result }}" != "skipped" ]; then
+            FAILED_JOBS="${FAILED_JOBS}merge-as-branches "
+          fi
+
+          if [ -n "$FAILED_JOBS" ]; then
+            echo "The following Deploy jobs failed: $FAILED_JOBS"
+            echo ""
+            echo "Job results:"
+            echo "  detect-changes: ${{ needs.detect-changes.result }}"
+            echo "  lint-and-test: ${{ needs.lint-and-test.result }}"
+            echo "  merge-as-branches: ${{ needs.merge-as-branches.result }}"
+            exit 1
+          fi
+
+          echo "All Deploy jobs passed or were skipped"
+          echo ""
+          echo "Job results:"
+          echo "  detect-changes: ${{ needs.detect-changes.result }}"
+          echo "  lint-and-test: ${{ needs.lint-and-test.result }}"
+          echo "  merge-as-branches: ${{ needs.merge-as-branches.result }}"

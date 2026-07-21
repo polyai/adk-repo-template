@@ -1,0 +1,332 @@
+name: Sync Projects
+
+on:
+  schedule:
+    # Run every day at 3 am UTC
+    - cron: "0 3 * * *"
+  repository_dispatch:
+    types: [project-sync]
+  workflow_dispatch:
+    inputs:
+      project:
+        description: "Project to sync (blank for all)"
+        required: false
+        default: ""
+      branch:
+        description: "Branch to sync"
+        required: false
+        default: "main"
+      correlation_id:
+        description: "Correlation ID for traceability of webhook-triggered syncs"
+        required: false
+      artifact_version:
+        description: "Artifact version from deployment"
+        required: false
+      deployment_type:
+        description: "Deployment type (publish, rollback)"
+        required: false
+      deployment_message:
+        description: "Deployment message"
+        required: false
+      version_hash:
+        description: "Version hash"
+        required: false
+      user:
+        description: "User triggering the sync"
+        required: false
+  push:
+    branches:
+      - main
+    paths:
+      - "pyproject.toml"
+
+concurrency:
+  group: ${{ github.event_name == 'workflow_dispatch' && inputs.correlation_id != '' && format('webhook-sync-{0}', inputs.project) || format('sync-{0}', github.run_id) }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  wait-for-merge-queue:
+    name: Wait for merge queue
+    if: github.event_name == 'workflow_dispatch' && inputs.correlation_id != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Wait if deployment matches merge queue PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOYMENT_MESSAGE: ${{ inputs.deployment_message }}
+        run: |
+          if [ -z "$DEPLOYMENT_MESSAGE" ]; then
+            echo "No deployment message, proceeding with sync"
+            exit 0
+          fi
+
+          REPO_OWNER="${GITHUB_REPOSITORY%/*}"
+          REPO_NAME="${GITHUB_REPOSITORY#*/}"
+
+          DEPLOY_PR=$(echo "$DEPLOYMENT_MESSAGE" | sed -nE 's/.*[[:space:]]*\(#([0-9]+)\)$/\1/p')
+          DEPLOY_TITLE=$(echo "$DEPLOYMENT_MESSAGE" | sed -E 's/[[:space:]]*\(#[0-9]+\)$//')
+
+          check_merge_queue() {
+            gh api graphql -f query='
+              {
+                repository(owner:"'"$REPO_OWNER"'", name:"'"$REPO_NAME"'") {
+                  mergeQueue(branch:"main") {
+                    entries(first: 1) {
+                      nodes {
+                        pullRequest {
+                          number
+                          title
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ' --jq '.data.repository.mergeQueue.entries.nodes[0].pullRequest? | select(.) | "\(.number)\t\(.title)"' || echo ""
+          }
+
+          matches_deployment() {
+            local mq_entry="$1"
+            [ -z "$mq_entry" ] && return 1
+            [ -z "$DEPLOY_PR" ] && return 1
+
+            local mq_number mq_title
+            mq_number=$(echo "$mq_entry" | cut -f1)
+            mq_title=$(echo "$mq_entry" | cut -f2)
+
+            [ "$mq_number" != "$DEPLOY_PR" ] && return 1
+
+            local stripped
+            stripped=$(echo "$mq_title" | sed -E 's/^([a-z]+)\([^)]+\)!?:/\1:/')
+            [ "$stripped" = "$DEPLOY_TITLE" ]
+          }
+
+          MQ_ENTRY=$(check_merge_queue)
+
+          if ! matches_deployment "$MQ_ENTRY"; then
+            echo "No merge queue conflict, proceeding with sync"
+            exit 0
+          fi
+
+          echo "::notice::PR #$DEPLOY_PR is in the merge queue and matches deployment"
+          echo "Polling until merge queue clears (max 5m)..."
+
+          TIMEOUT=300
+          INTERVAL=15
+          ELAPSED=0
+
+          while [ $ELAPSED -lt $TIMEOUT ]; do
+            sleep $INTERVAL
+            ELAPSED=$((ELAPSED + INTERVAL))
+
+            MQ_ENTRY=$(check_merge_queue)
+            if ! matches_deployment "$MQ_ENTRY"; then
+              echo "Merge queue cleared after ${ELAPSED}s, proceeding with sync"
+              exit 0
+            fi
+
+            echo "PR #$DEPLOY_PR still in merge queue, waiting... (${ELAPSED}/${TIMEOUT}s)"
+          done
+
+          echo "::warning::Merge queue did not clear within ${TIMEOUT}s, proceeding with sync anyway"
+
+  find-projects:
+    needs: [wait-for-merge-queue]
+    if: "!cancelled()"
+    runs-on: ubuntu-latest
+    outputs:
+      projects: ${{ steps.find.outputs.projects }}
+      has_projects: ${{ steps.find.outputs.has_projects }}
+      poly_adk_version_changed: ${{ steps.check-version.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.branch || 'main' }}
+
+      - name: Check if Poly ADK version changed
+        id: check-version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            if git diff HEAD~1 HEAD -- pyproject.toml | grep -q "polyai-adk"; then
+              echo "changed=true" >> $GITHUB_OUTPUT
+              echo "Poly ADK version changed — syncing all projects"
+            else
+              echo "changed=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Find projects
+        id: find
+        run: |
+          PROJECT_FILTER="${{ inputs.project }}"
+          PROJECTS=()
+
+          while IFS= read -r file; do
+            dir=$(dirname "$file")
+            # Extract account/project relative to agents/
+            rel_path="${dir#agents/}"
+
+            if [ -n "$PROJECT_FILTER" ] && [[ "$rel_path" != *"$PROJECT_FILTER"* ]]; then
+              continue
+            fi
+
+            PROJECTS+=("$rel_path")
+          done < <(find agents -name project.yaml -maxdepth 3)
+
+          if [ ${#PROJECTS[@]} -eq 0 ]; then
+            echo "::error::No projects found"
+            echo "has_projects=false" >> $GITHUB_OUTPUT
+            echo "projects=[]" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          PROJECTS_JSON=$(printf '%s\n' "${PROJECTS[@]}" | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "projects=$PROJECTS_JSON" >> $GITHUB_OUTPUT
+          echo "has_projects=true" >> $GITHUB_OUTPUT
+          echo "Found projects: $PROJECTS_JSON"
+
+  sync-projects:
+    name: Sync ${{ matrix.project }}
+    runs-on: ubuntu-latest
+    needs: find-projects
+    if: |
+      !cancelled() && needs.find-projects.result == 'success' &&
+      needs.find-projects.outputs.has_projects == 'true' &&
+      (github.event_name != 'push' || needs.find-projects.outputs.poly_adk_version_changed == 'true')
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJson(needs.find-projects.outputs.projects) }}
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ inputs.branch || 'main' }}
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v7
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: |
+          uv venv
+          source .venv/bin/activate
+          uv pip install -e .
+
+      - name: Install prettier
+        run: npm install -g prettier@3.1.0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Pull from Agent Studio
+        env:
+          POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
+          POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
+          POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
+          POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
+          POLY_ADK_KEY_DEV: ${{ secrets.POLY_ADK_KEY_DEV }}
+          POLY_ADK_KEY_STAGING: ${{ secrets.POLY_ADK_KEY_STAGING }}
+          POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
+        run: |
+          source .venv/bin/activate
+          PROJECT_PATH="agents/${{ matrix.project }}"
+          echo "Pulling $PROJECT_PATH from Agent Studio..."
+          python .github/scripts/poly_adk_scripts/pull_project.py "$PROJECT_PATH"
+
+      - name: Format and commit
+        env:
+          TARGET_BRANCH: ${{ inputs.branch || 'main' }}
+          INPUT_DEPLOYMENT_MESSAGE: ${{ inputs.deployment_message }}
+          INPUT_VERSION_HASH: ${{ inputs.version_hash }}
+          INPUT_USER_EMAIL: ${{ inputs.user }}
+          INPUT_CORRELATION_ID: ${{ inputs.correlation_id }}
+          INPUT_ARTIFACT_VERSION: ${{ inputs.artifact_version }}
+          INPUT_DEPLOYMENT_TYPE: ${{ inputs.deployment_type }}
+        run: |
+          source .venv/bin/activate
+          PROJECT_PATH="agents/${{ matrix.project }}"
+          PROJECT_NAME="${{ matrix.project }}"
+
+          if [ -z "$(git status --porcelain "$PROJECT_PATH")" ]; then
+            echo "No changes detected for $PROJECT_NAME"
+            exit 0
+          fi
+
+          echo "Changes detected, formatting and committing..."
+
+          cd "$PROJECT_PATH"
+          ruff format . || true
+          ruff check . --fix || true
+          prettier --write "**/*.{yaml,yml}" || true
+          git add .
+          cd "$GITHUB_WORKSPACE"
+
+          echo "=== Changes ==="
+          git diff --cached --name-status -- "$PROJECT_PATH"
+          echo ""
+
+          if [ -z "$(git diff --cached --name-only)" ]; then
+            echo "No changes after formatting"
+            exit 0
+          fi
+
+          # Build commit message
+          if [ -n "$INPUT_DEPLOYMENT_MESSAGE" ]; then
+            SUBJECT_BODY="$INPUT_DEPLOYMENT_MESSAGE"
+          else
+            SUBJECT_BODY="Sync with Agent Studio"
+          fi
+
+          COMMIT_MSG="chore($PROJECT_NAME): $SUBJECT_BODY"
+          if [ -n "$INPUT_CORRELATION_ID" ]; then
+            COMMIT_MSG="$COMMIT_MSG (webhook)"
+            COMMIT_MSG=$(printf '%s\n\nCorrelation ID: %s' "$COMMIT_MSG" "$INPUT_CORRELATION_ID")
+            [ -n "$INPUT_ARTIFACT_VERSION" ] && COMMIT_MSG=$(printf '%s\nArtifact version: %s' "$COMMIT_MSG" "$INPUT_ARTIFACT_VERSION")
+            [ -n "$INPUT_DEPLOYMENT_TYPE" ] && COMMIT_MSG=$(printf '%s\nDeployment type: %s' "$COMMIT_MSG" "$INPUT_DEPLOYMENT_TYPE")
+            [ -n "$INPUT_USER_EMAIL" ] && COMMIT_MSG=$(printf '%s\nUser: %s' "$COMMIT_MSG" "$INPUT_USER_EMAIL")
+            [ -n "$INPUT_VERSION_HASH" ] && COMMIT_MSG=$(printf '%s\nVersion hash: %s' "$COMMIT_MSG" "$INPUT_VERSION_HASH")
+          fi
+
+          git commit -m "$COMMIT_MSG"
+
+          # Push with retries (handles parallel project pushes)
+          for attempt in $(seq 1 5); do
+            echo "Pushing (attempt $attempt/5)..."
+            git fetch origin "$TARGET_BRANCH" 2>&1 || true
+            if ! git rebase "origin/$TARGET_BRANCH" 2>&1; then
+              echo "::warning::Rebase failed"
+              git rebase --abort 2>&1 || true
+              exit 1
+            fi
+            if git push --force-with-lease origin "HEAD:$TARGET_BRANCH" 2>&1; then
+              echo "Pushed successfully"
+              exit 0
+            fi
+            echo "Push failed, retrying..."
+            sleep 1
+          done
+
+          echo "::error::Failed to push after 5 attempts"
+          exit 1

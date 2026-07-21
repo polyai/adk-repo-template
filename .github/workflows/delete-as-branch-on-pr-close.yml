@@ -1,0 +1,91 @@
+name: Delete Agent Studio branch on PR close
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  detect:
+    name: Detect changed projects
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    outputs:
+      projects: ${{ steps.detect.outputs.projects }}
+      has_projects: ${{ steps.detect.outputs.has_projects }}
+      branch_name: ${{ steps.branch.outputs.branch_name }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+
+      - name: Fetch PR refs
+        run: |
+          git fetch origin pull/${{ github.event.pull_request.number }}/head:pr-head 2>/dev/null || \
+          git fetch origin ${{ github.event.pull_request.head.ref }}:refs/heads/pr-head 2>/dev/null || true
+
+      - name: Set branch name
+        id: branch
+        run: echo "branch_name=${{ github.event.pull_request.head.ref }}" >> $GITHUB_OUTPUT
+
+      - name: Detect changed projects
+        id: detect
+        run: |
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          BASE_SHA=$(git merge-base "${{ github.event.pull_request.base.sha }}" "$HEAD_SHA")
+
+          PROJECTS=$(.github/scripts/detect-changed-dirs.sh --prefix agents --depth 2 --range "$BASE_SHA" "$HEAD_SHA" --format json)
+          echo "projects=$PROJECTS" >> $GITHUB_OUTPUT
+          if [ "$PROJECTS" != "[]" ] && [ -n "$PROJECTS" ]; then
+            echo "has_projects=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_projects=false" >> $GITHUB_OUTPUT
+          fi
+
+  delete-as-branches:
+    name: Delete AS branches
+    needs: detect
+    runs-on: ubuntu-latest
+    if: needs.detect.outputs.has_projects == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJson(needs.detect.outputs.projects) }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v7
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install ADK
+        run: |
+          uv venv
+          source .venv/bin/activate
+          uv pip install -e .
+
+      - name: Delete AS branch
+        env:
+          POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
+          POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
+          POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
+          POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
+          POLY_ADK_KEY_DEV: ${{ secrets.POLY_ADK_KEY_DEV }}
+          POLY_ADK_KEY_STAGING: ${{ secrets.POLY_ADK_KEY_STAGING }}
+          POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
+        run: |
+          source .venv/bin/activate
+          BRANCH_NAME="${{ needs.detect.outputs.branch_name }}"
+          echo "Deleting AS branch $BRANCH_NAME for ${{ matrix.project }}..."
+          python .github/scripts/poly_adk_scripts/delete_branch.py \
+            "agents/${{ matrix.project }}" \
+            "$BRANCH_NAME"

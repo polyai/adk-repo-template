@@ -1,0 +1,245 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.head_ref != 'main'
+    outputs:
+      projects: ${{ steps.detect.outputs.projects }}
+      has_projects: ${{ steps.detect.outputs.has_projects }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed projects
+        id: detect
+        run: |
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+            MERGE_BASE_FLAG="--merge-base"
+          elif [ "${{ github.event_name }}" == "push" ]; then
+            BASE_SHA="${{ github.event.before }}"
+            HEAD_SHA="${{ github.event.after }}"
+            MERGE_BASE_FLAG=""
+          else
+            BASE_SHA="origin/main"
+            HEAD_SHA="HEAD"
+            MERGE_BASE_FLAG=""
+          fi
+
+          PROJECTS=$(.github/scripts/detect-changed-dirs.sh --prefix agents --depth 2 --range "$BASE_SHA" "$HEAD_SHA" $MERGE_BASE_FLAG --format json)
+          echo "projects=$PROJECTS" >> $GITHUB_OUTPUT
+          if [ "$PROJECTS" != "[]" ] && [ -n "$PROJECTS" ]; then
+            echo "has_projects=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_projects=false" >> $GITHUB_OUTPUT
+          fi
+
+  lint-and-test:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_projects == 'true'
+    runs-on: ubuntu-latest
+    env:
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v7
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: |
+          uv venv
+          source .venv/bin/activate
+          uv pip install -e ".[dev]"
+
+      - name: Lint with ruff
+        run: |
+          source .venv/bin/activate
+          PROJECTS='${{ needs.detect-changes.outputs.projects }}'
+          PATHS=()
+          while IFS= read -r dir; do
+            [ -z "$dir" ] && continue
+            PATHS+=("agents/$dir")
+          done < <(echo "$PROJECTS" | jq -r '.[]')
+          if [ ${#PATHS[@]} -gt 0 ]; then
+            ruff check "${PATHS[@]}"
+          fi
+
+      - name: Format check with ruff
+        run: |
+          source .venv/bin/activate
+          PROJECTS='${{ needs.detect-changes.outputs.projects }}'
+          PATHS=()
+          while IFS= read -r dir; do
+            [ -z "$dir" ] && continue
+            PATHS+=("agents/$dir")
+          done < <(echo "$PROJECTS" | jq -r '.[]')
+          if [ ${#PATHS[@]} -gt 0 ]; then
+            ruff format --check "${PATHS[@]}"
+          fi
+
+      - name: Install prettier
+        run: npm install -g prettier@3.1.0
+
+      - name: Format check YAML with prettier
+        run: |
+          PROJECTS='${{ needs.detect-changes.outputs.projects }}'
+          PATHS=()
+          while IFS= read -r dir; do
+            [ -z "$dir" ] && continue
+            PATHS+=("agents/$dir/**/*.{yaml,yml}")
+          done < <(echo "$PROJECTS" | jq -r '.[]')
+          if [ ${#PATHS[@]} -gt 0 ]; then
+            prettier --check "${PATHS[@]}"
+          fi
+
+      - name: Type check with ty
+        run: |
+          PROJECTS='${{ needs.detect-changes.outputs.projects }}'
+          PATHS=()
+          while IFS= read -r dir; do
+            [ -z "$dir" ] && continue
+            PATHS+=("agents/$dir")
+          done < <(echo "$PROJECTS" | jq -r '.[]')
+          if [ ${#PATHS[@]} -gt 0 ]; then
+            uvx ty check "${PATHS[@]}"
+          fi
+
+      - name: Run tests
+        run: |
+          source .venv/bin/activate
+          .github/scripts/run-tests.sh '${{ needs.detect-changes.outputs.projects }}'
+
+  push-to-as-branch:
+    needs: detect-changes
+    if: github.event_name == 'pull_request' && needs.detect-changes.outputs.has_projects == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJson(needs.detect-changes.outputs.projects) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v7
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install ADK
+        run: |
+          uv venv
+          source .venv/bin/activate
+          uv pip install -e .
+
+      - name: Check Poly ADK version protection
+        env:
+          POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
+          POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
+          POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
+          POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
+          POLY_ADK_KEY_DEV: ${{ secrets.POLY_ADK_KEY_DEV }}
+          POLY_ADK_KEY_STAGING: ${{ secrets.POLY_ADK_KEY_STAGING }}
+          POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
+        run: |
+          source .venv/bin/activate
+          BRANCH_NAME="${{ github.head_ref }}"
+          git fetch origin main "$BRANCH_NAME" 2>/dev/null || true
+          BRANCH_REF="origin/$BRANCH_NAME"
+          python .github/scripts/poly_adk_scripts/check_poly_adk_version_protection.py \
+            '["${{ matrix.project }}"]' "$BRANCH_NAME" --branch-ref "$BRANCH_REF"
+
+      - name: Validate project
+        env:
+          POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
+          POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
+          POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
+          POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
+          POLY_ADK_KEY_DEV: ${{ secrets.POLY_ADK_KEY_DEV }}
+          POLY_ADK_KEY_STAGING: ${{ secrets.POLY_ADK_KEY_STAGING }}
+          POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
+        run: |
+          source .venv/bin/activate
+          python .github/scripts/poly_adk_scripts/validate_project.py \
+            "agents/${{ matrix.project }}" \
+            "${{ github.head_ref }}"
+
+      - name: Push to AS branch
+        env:
+          POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
+          POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
+          POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
+          POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
+          POLY_ADK_KEY_DEV: ${{ secrets.POLY_ADK_KEY_DEV }}
+          POLY_ADK_KEY_STAGING: ${{ secrets.POLY_ADK_KEY_STAGING }}
+          POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
+        run: |
+          source .venv/bin/activate
+          BRANCH_NAME="${{ github.head_ref }}"
+          echo "Pushing agents/${{ matrix.project }} to AS branch: $BRANCH_NAME"
+          python .github/scripts/poly_adk_scripts/push_to_branch.py \
+            "agents/${{ matrix.project }}" \
+            "$BRANCH_NAME"
+
+  ci:
+    name: Verify all CI jobs passed or were skipped
+    needs: [detect-changes, lint-and-test, push-to-as-branch]
+    runs-on: ubuntu-latest
+    if: always()
+    permissions:
+      contents: read
+    steps:
+      - name: Verify all CI jobs passed or were skipped
+        run: |
+          FAILED_JOBS=""
+
+          if [ "${{ needs.detect-changes.result }}" != "success" ] && [ "${{ needs.detect-changes.result }}" != "skipped" ]; then
+            FAILED_JOBS="${FAILED_JOBS}detect-changes "
+          fi
+
+          if [ "${{ needs.lint-and-test.result }}" != "success" ] && [ "${{ needs.lint-and-test.result }}" != "skipped" ]; then
+            FAILED_JOBS="${FAILED_JOBS}lint-and-test "
+          fi
+
+          if [ "${{ needs.push-to-as-branch.result }}" != "success" ] && [ "${{ needs.push-to-as-branch.result }}" != "skipped" ]; then
+            FAILED_JOBS="${FAILED_JOBS}push-to-as-branch "
+          fi
+
+          if [ -n "$FAILED_JOBS" ]; then
+            echo "The following CI jobs failed: $FAILED_JOBS"
+            echo ""
+            echo "Job results:"
+            echo "  detect-changes: ${{ needs.detect-changes.result }}"
+            echo "  lint-and-test: ${{ needs.lint-and-test.result }}"
+            echo "  push-to-as-branch: ${{ needs.push-to-as-branch.result }}"
+            exit 1
+          fi
+
+          echo "All CI jobs passed or were skipped"
+          echo ""
+          echo "Job results:"
+          echo "  detect-changes: ${{ needs.detect-changes.result }}"
+          echo "  lint-and-test: ${{ needs.lint-and-test.result }}"
+          echo "  push-to-as-branch: ${{ needs.push-to-as-branch.result }}"

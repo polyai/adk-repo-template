@@ -1,0 +1,117 @@
+name: Delete Agent Studio branch when commit removes project
+
+on:
+  pull_request:
+    types: [synchronize]
+
+jobs:
+  detect-removed:
+    name: Detect projects removed in this push
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    outputs:
+      removed_projects: ${{ steps.removed.outputs.removed_projects }}
+      has_removed: ${{ steps.removed.outputs.has_removed }}
+      branch_name: ${{ steps.branch.outputs.branch_name }}
+      prev_sha: ${{ steps.removed.outputs.prev_sha }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Set branch name
+        id: branch
+        run: echo "branch_name=${{ github.event.pull_request.head.ref }}" >> $GITHUB_OUTPUT
+
+      - name: Compute projects removed in this push
+        id: removed
+        run: |
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          PREV_SHA=$(git rev-parse "$HEAD_SHA^")
+          echo "prev_sha=$PREV_SHA" >> $GITHUB_OUTPUT
+
+          # Skip merge commits to avoid false positives
+          if git rev-parse "$HEAD_SHA^2" >/dev/null 2>&1; then
+            echo "Push is a merge commit — skipping removed-project detection"
+            echo "removed_projects=[]" >> $GITHUB_OUTPUT
+            echo "has_removed=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          BASE_SHA=$(git merge-base "${{ github.event.pull_request.base.sha }}" "$HEAD_SHA")
+
+          projects_in_diff() {
+            git diff --name-only "$1" "$2" 2>/dev/null | grep '^agents/' | while IFS= read -r file; do
+              # Extract account/project (fields 2-3)
+              dir=$(echo "$file" | cut -d'/' -f2-3)
+              [ -z "$dir" ] && continue
+              echo "$dir" | grep -qE '(^|/)\.' && continue
+              printf '%s\n' "$dir"
+            done | sort -u
+          }
+
+          OLD_PROJECTS=$(projects_in_diff "$BASE_SHA" "$PREV_SHA")
+          NEW_PROJECTS=$(projects_in_diff "$BASE_SHA" "$HEAD_SHA")
+
+          REMOVED=$(comm -23 <(echo "$OLD_PROJECTS") <(echo "$NEW_PROJECTS"))
+
+          REMOVED_JSON=$(echo "$REMOVED" | grep -v '^$' | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          [ -z "$REMOVED_JSON" ] && REMOVED_JSON="[]"
+          echo "removed_projects=$REMOVED_JSON" >> $GITHUB_OUTPUT
+
+          if [ "$REMOVED_JSON" != "[]" ]; then
+            echo "has_removed=true" >> $GITHUB_OUTPUT
+            echo "Projects removed in this push: $REMOVED_JSON"
+          else
+            echo "has_removed=false" >> $GITHUB_OUTPUT
+          fi
+
+  delete-as-branches:
+    name: Delete AS branches
+    needs: detect-removed
+    runs-on: ubuntu-latest
+    if: needs.detect-removed.outputs.has_removed == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJson(needs.detect-removed.outputs.removed_projects) }}
+    permissions:
+      contents: read
+    steps:
+      # Checkout previous HEAD so removed project dirs still exist for project.yaml
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.detect-removed.outputs.prev_sha }}
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v7
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install ADK
+        run: |
+          uv venv
+          source .venv/bin/activate
+          uv pip install -e .
+
+      - name: Delete AS branch
+        env:
+          POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
+          POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
+          POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
+          POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
+          POLY_ADK_KEY_DEV: ${{ secrets.POLY_ADK_KEY_DEV }}
+          POLY_ADK_KEY_STAGING: ${{ secrets.POLY_ADK_KEY_STAGING }}
+          POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
+        run: |
+          source .venv/bin/activate
+          BRANCH_NAME="${{ needs.detect-removed.outputs.branch_name }}"
+          echo "Deleting AS branch $BRANCH_NAME for ${{ matrix.project }} (project removed from PR)..."
+          python .github/scripts/poly_adk_scripts/delete_branch.py \
+            "agents/${{ matrix.project }}" \
+            "$BRANCH_NAME"
