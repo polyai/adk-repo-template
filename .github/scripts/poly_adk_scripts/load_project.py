@@ -19,7 +19,8 @@ def load_local_agent_studio_project(base_path: str, branch_name: str) -> AgentSt
     # Force branch id to be main
     project.branch_id = "main"
     _, branches = project.get_branches()
-    if branch_id := branches.get(branch_name):
+    if branch_meta := branches.get(branch_name):
+        branch_id = branch_meta["branchId"]
         project.branch_id = branch_id
         project.api_handler.switch_branch(branch_id)
     else:
