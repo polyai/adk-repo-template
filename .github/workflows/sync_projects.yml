@@ -8,10 +8,14 @@ on:
     types: [project-sync]
   workflow_dispatch:
     inputs:
-      project:
-        description: "Project to sync (blank for all)"
+      account_id:
+        description: "Account to sync (blank or * for all)"
         required: false
-        default: ""
+        default: "*"
+      project_id:
+        description: "Project to sync (blank or * for all)"
+        required: false
+        default: "*"
       branch:
         description: "Branch to sync"
         required: false
@@ -41,7 +45,7 @@ on:
       - "pyproject.toml"
 
 concurrency:
-  group: ${{ github.event_name == 'workflow_dispatch' && inputs.correlation_id != '' && format('webhook-sync-{0}', inputs.project) || format('sync-{0}', github.run_id) }}
+  group: ${{ github.event_name == 'workflow_dispatch' && inputs.correlation_id != '' && format('webhook-sync-{0}', inputs.project_id) || format('sync-{0}', github.run_id) }}
   cancel-in-progress: false
 
 permissions:
@@ -166,20 +170,41 @@ jobs:
 
       - name: Find projects
         id: find
+        env:
+          INPUT_ACCOUNT_ID: ${{ inputs.account_id }}
+          INPUT_PROJECT_ID: ${{ inputs.project_id }}
         run: |
-          PROJECT_FILTER="${{ inputs.project }}"
+          ACCOUNT_FILTER="$INPUT_ACCOUNT_ID"
+          PROJECT_FILTER="$INPUT_PROJECT_ID"
           PROJECTS=()
+
+          # Helper function to read YAML field
+          read_yaml_field() {
+            local file="$1"
+            local field="$2"
+            yq -r ".$field // \"\"" "$file" 2>/dev/null || \
+              grep -E "^$field:" "$file" | awk '{print $2}' | tr -d '"' | tr -d "'" || echo ""
+          }
+
+          should_filter_account() { [ "$ACCOUNT_FILTER" != "*" ] && [ -n "$ACCOUNT_FILTER" ]; }
+          should_filter_project() { [ "$PROJECT_FILTER" != "*" ] && [ -n "$PROJECT_FILTER" ]; }
+
+          should_filter_account && echo "Filtering by account_id: $ACCOUNT_FILTER"
+          should_filter_project && echo "Filtering by project_id: $PROJECT_FILTER"
 
           while IFS= read -r file; do
             dir=$(dirname "$file")
             # Extract account/project relative to agents/
             rel_path="${dir#agents/}"
 
-            if [ -n "$PROJECT_FILTER" ] && [[ "$rel_path" != *"$PROJECT_FILTER"* ]]; then
-              continue
-            fi
+            FILE_ACCOUNT_ID=$(read_yaml_field "$file" "account_id")
+            FILE_PROJECT_ID=$(read_yaml_field "$file" "project_id")
 
-            PROJECTS+=("$rel_path")
+            MATCH=true
+            should_filter_account && [ "$FILE_ACCOUNT_ID" != "$ACCOUNT_FILTER" ] && MATCH=false
+            should_filter_project && [ "$MATCH" = true ] && [ "$FILE_PROJECT_ID" != "$PROJECT_FILTER" ] && MATCH=false
+
+            [ "$MATCH" = true ] && PROJECTS+=("$rel_path")
           done < <(find agents -name project.yaml -maxdepth 3)
 
           if [ ${#PROJECTS[@]} -eq 0 ]; then
@@ -207,16 +232,9 @@ jobs:
       matrix:
         project: ${{ fromJson(needs.find-projects.outputs.projects) }}
     steps:
-      - name: Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.GH_APP_ID }}
-          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-
       - uses: actions/checkout@v4
         with:
-          token: ${{ steps.app-token.outputs.token }}
+          token: ${{ secrets.POLY_CONFIG_BOT_TOKEN }}
           ref: ${{ inputs.branch || 'main' }}
           fetch-depth: 0
 
@@ -237,8 +255,8 @@ jobs:
 
       - name: Configure git
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "Poly Config Bot"
+          git config user.email "poly-config-bot@poly-ai.com"
 
       - name: Pull from Agent Studio
         env:
