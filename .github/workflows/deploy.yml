@@ -131,6 +131,17 @@ jobs:
         with:
           fetch-depth: 0
 
+      # A re-run can't merge the PR (the queue already evicted the entry) — it can
+      # only force-push a stale checkout to Agent Studio, reverting newer work.
+      - name: Refuse re-runs of merge-queue attempts
+        run: |
+          if [ "${GITHUB_RUN_ATTEMPT:-1}" -gt 1 ]; then
+            echo "Re-running a merge-queue run cannot merge the PR and would push a stale"
+            echo "checkout to Agent Studio. Add the PR to the merge queue again instead."
+            exit 1
+          fi
+          echo "First attempt"
+
       - uses: astral-sh/setup-uv@v7
 
       - uses: actions/setup-python@v5
