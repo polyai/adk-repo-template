@@ -1,4 +1,5 @@
 name: Deploy
+run-name: "Deploy — ${{ github.event.merge_group.head_commit.message }}"
 
 on:
   merge_group:
@@ -122,6 +123,12 @@ jobs:
       POLY_ADK_KEY_DEV: ${{ secrets.POLY_ADK_KEY_DEV }}
       POLY_ADK_KEY_STAGING: ${{ secrets.POLY_ADK_KEY_STAGING }}
       POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
+    # Serialise per project, not per job: two queue entries touching the same
+    # project must not merge to Agent Studio concurrently, but different projects
+    # in one PR should still run in parallel.
+    concurrency:
+      group: merge-as-${{ github.event.merge_group.base_ref }}-${{ matrix.project }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       matrix:
