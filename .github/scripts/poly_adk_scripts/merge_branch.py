@@ -110,9 +110,17 @@ def _merge_with_retry(project, message: str, conflict_resolutions: list[dict] | 
     """
     attempts = len(SEQUENCE_MISMATCH_RETRY_DELAYS)
     for attempt, delay in enumerate(SEQUENCE_MISMATCH_RETRY_DELAYS, start=1):
-        success, conflicts, errors = project.merge_branch(
-            message=message, conflict_resolutions=conflict_resolutions
-        )
+        try:
+            success, conflicts, errors = project.merge_branch(
+                message=message, conflict_resolutions=conflict_resolutions
+            )
+        except ValueError as e:
+            if "uncommitted changes" in str(e).lower():
+                print("Merge blocked by uncommitted local changes:")
+                for file, diff in project.get_diffs().items():
+                    print(file)
+                    print(diff)
+            raise
         if not _is_sequence_mismatch(errors):
             return success, conflicts, errors
         print(
