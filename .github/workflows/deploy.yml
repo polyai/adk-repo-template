@@ -184,15 +184,40 @@ jobs:
             echo "Branch $BRANCH_NAME exists"
             echo "exists=true" >> $GITHUB_OUTPUT
           elif [ $EXIT_CODE -eq 1 ]; then
-            echo "Branch $BRANCH_NAME does not exist, skipping merge"
+            echo "Branch $BRANCH_NAME does not exist — checking if AS main is already in sync"
             echo "exists=false" >> $GITHUB_OUTPUT
           else
             echo "Error checking branch existence"
             exit 1
           fi
 
+      # Only needed when the branch is gone: if it still exists we push+merge
+      # unconditionally below regardless of whether main already matches.
+      - name: Check if AS main matches merged content
+        id: check_main_matches
+        if: steps.check_branch.outputs.exists == 'false'
+        run: |
+          source .venv/bin/activate
+          PROJECT_PATH="agents/${{ matrix.project }}"
+
+          set +e
+          python .github/scripts/poly_adk_scripts/check_as_parent_matches_local.py "$PROJECT_PATH"
+          EXIT_CODE=$?
+          set -e
+
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo "AS main already matches merged(git main, git branch), nothing to do"
+            echo "matches=true" >> $GITHUB_OUTPUT
+          elif [ $EXIT_CODE -eq 1 ]; then
+            echo "AS main differs from merged(git main, git branch), pushing and merging"
+            echo "matches=false" >> $GITHUB_OUTPUT
+          else
+            echo "Error checking AS main state"
+            exit 1
+          fi
+
       - name: Push final state to AS branch
-        if: steps.check_branch.outputs.exists == 'true'
+        if: steps.check_branch.outputs.exists == 'true' || steps.check_main_matches.outputs.matches == 'false'
         run: |
           source .venv/bin/activate
           python .github/scripts/poly_adk_scripts/push_to_branch.py \
@@ -200,7 +225,7 @@ jobs:
             "${{ steps.extract_branch.outputs.BRANCH_NAME }}"
 
       - name: Merge AS branch to main
-        if: steps.check_branch.outputs.exists == 'true'
+        if: steps.check_branch.outputs.exists == 'true' || steps.check_main_matches.outputs.matches == 'false'
         run: |
           source .venv/bin/activate
           MERGE_MESSAGE=$(git log -1 ${{ github.event.merge_group.head_sha }} --pretty=format:%s)
@@ -210,7 +235,7 @@ jobs:
             "$MERGE_MESSAGE"
 
       - name: Verify AS branch deleted after merge
-        if: steps.check_branch.outputs.exists == 'true'
+        if: steps.check_branch.outputs.exists == 'true' || steps.check_main_matches.outputs.matches == 'false'
         run: |
           source .venv/bin/activate
           PROJECT_PATH="agents/${{ matrix.project }}"
