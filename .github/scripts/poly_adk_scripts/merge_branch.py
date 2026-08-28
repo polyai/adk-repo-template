@@ -161,13 +161,14 @@ def merge_branch(base_path: str, branch_name: str, message: str) -> tuple[bool, 
         for error in errors:
             lower_error = _get_error_message(error).lower()
             only_sync_errors &= (
-                "duplicate name" in lower_error or "duplicate parameter name" in lower_error
+                "duplicate" in lower_error
+                or "function step name must be unique across all flows" in lower_error
             )
 
         if not only_sync_errors:
             return False, "\n".join(messages)
 
-        print("Found duplicate name errors, attempting sync and merge")
+        print("Found ID sync errors, attempting sync and merge")
         if not project.sync_ids_with_sandbox():
             return False, "Error: Failed to sync IDs with sandbox"
 
