@@ -267,11 +267,28 @@ jobs:
           POLY_ADK_KEY_DEV: ${{ secrets.POLY_ADK_KEY_DEV }}
           POLY_ADK_KEY_STAGING: ${{ secrets.POLY_ADK_KEY_STAGING }}
           POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
+          # A Poly ADK version bump regenerates _gen/, which the skip-if-unchanged
+          # check has nothing to compare against — always pull there.
+          FORCE_PULL: ${{ github.event_name == 'push' && needs.find-projects.outputs.poly_adk_version_changed == 'true' }}
         run: |
           source .venv/bin/activate
           PROJECT_PATH="agents/${{ matrix.project }}"
           echo "Pulling $PROJECT_PATH from Agent Studio..."
-          python .github/scripts/poly_adk_scripts/pull_project.py "$PROJECT_PATH"
+
+          PULL_ARGS=""
+          if [ "$FORCE_PULL" = "true" ]; then
+            PULL_ARGS="--force"
+          fi
+
+          set +e
+          python .github/scripts/poly_adk_scripts/pull_project.py "$PROJECT_PATH" $PULL_ARGS
+          PULL_EXIT_CODE=$?
+          set -e
+
+          # Exit 2 means Agent Studio main already matches disk — not a failure.
+          if [ $PULL_EXIT_CODE -eq 1 ]; then
+            exit 1
+          fi
 
       - name: Format and commit
         env:
