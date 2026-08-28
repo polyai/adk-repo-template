@@ -1,5 +1,6 @@
 import argparse
 import sys
+import time
 
 from load_project import load_local_agent_studio_project
 
@@ -92,6 +93,36 @@ def generate_messages(conflicts: list[dict], errors: list[dict]) -> list[str]:
     return messages
 
 
+SEQUENCE_MISMATCH_RETRY_DELAYS = (2, 5, 10)
+
+
+def _is_sequence_mismatch(errors: list[dict]) -> bool:
+    messages = (_get_error_message(error).lower() for error in errors)
+    return any("sequence mismatch" in m or "sequence_mismatch" in m for m in messages)
+
+
+def _merge_with_retry(project, message: str, conflict_resolutions: list[dict] | None = None):
+    """Merge, retrying when the branch sequence moved underneath us.
+
+    A draft deployment finishing mid-merge appends an event to the branch and the API
+    rejects the merge with SEQUENCE_MISMATCH. The ADK refetches the sequence on each
+    call, so a plain retry picks up the new value.
+    """
+    attempts = len(SEQUENCE_MISMATCH_RETRY_DELAYS)
+    for attempt, delay in enumerate(SEQUENCE_MISMATCH_RETRY_DELAYS, start=1):
+        success, conflicts, errors = project.merge_branch(
+            message=message, conflict_resolutions=conflict_resolutions
+        )
+        if not _is_sequence_mismatch(errors):
+            return success, conflicts, errors
+        print(
+            f"Sequence mismatch (branch changed during merge) - retrying in {delay}s "
+            f"(attempt {attempt}/{attempts})"
+        )
+        time.sleep(delay)
+    return project.merge_branch(message=message, conflict_resolutions=conflict_resolutions)
+
+
 def merge_branch(base_path: str, branch_name: str, message: str) -> tuple[bool, str]:
     """Merge a branch in Agent Studio.
     Args:
@@ -107,7 +138,8 @@ def merge_branch(base_path: str, branch_name: str, message: str) -> tuple[bool, 
     project = load_local_agent_studio_project(base_path, branch_name)
 
     print("Attempting merge")
-    success, conflicts, errors = project.merge_branch(
+    success, conflicts, errors = _merge_with_retry(
+        project,
         message=message,
     )
     messages = generate_messages(conflicts, errors)
@@ -127,7 +159,8 @@ def merge_branch(base_path: str, branch_name: str, message: str) -> tuple[bool, 
         if not project.sync_ids_with_sandbox():
             return False, "Error: Failed to sync IDs with sandbox"
 
-        success, conflicts, errors = project.merge_branch(
+        success, conflicts, errors = _merge_with_retry(
+            project,
             message=message,
         )
         messages = generate_messages(conflicts, errors)
@@ -152,7 +185,8 @@ def merge_branch(base_path: str, branch_name: str, message: str) -> tuple[bool, 
         if conflict_resolutions:
             print("Found conflicts, trying to resolve them automatically")
             print(conflict_resolutions)
-            success, conflicts, errors = project.merge_branch(
+            success, conflicts, errors = _merge_with_retry(
+                project,
                 message=message,
                 conflict_resolutions=conflict_resolutions,
             )
