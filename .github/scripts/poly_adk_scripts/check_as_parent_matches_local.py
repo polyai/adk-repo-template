@@ -28,8 +28,7 @@ def main() -> None:
     """Main entry point for the check AS parent matches local script."""
     parser = argparse.ArgumentParser(
         description=(
-            "Check if the branch's parent (main) already matches the local (merged) "
-            "project state."
+            "Check if the branch's parent (main) already matches the local (merged) project state."
         )
     )
     parser.add_argument(

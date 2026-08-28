@@ -47,7 +47,9 @@ def pull_project(base_path: str, force: bool = False) -> int:
     except Exception as exc:
         print(f"Pull failed: {exc}")
         if "API Error 401" in str(exc) or "Unauthorized" in str(exc):
-            print("Unauthorized. Please check the POLY_ADK_KEY has read permissions to the project.")
+            print(
+                "Unauthorized. Please check the POLY_ADK_KEY has read permissions to the project."
+            )
         return EXIT_FAILED
 
 
