@@ -178,6 +178,18 @@ jobs:
           echo "Original branch name: $ORIGINAL_BRANCH"
           echo "BRANCH_NAME=$ORIGINAL_BRANCH" >> $GITHUB_OUTPUT
 
+      - name: Check Poly ADK version protection
+        env:
+          PROJECT: ${{ matrix.project }}
+          BRANCH_NAME: ${{ steps.extract_branch.outputs.BRANCH_NAME }}
+        run: |
+          source .venv/bin/activate
+          # Only the branch/main tips are needed; keep the fetch shallow so it does
+          # not unshallow the checkout and add latency per parallel merge job.
+          git fetch --depth=1 origin main "$BRANCH_NAME" 2>/dev/null || true
+          python .github/scripts/poly_adk_scripts/check_poly_adk_version_protection.py \
+            "[\"$PROJECT\"]" "$BRANCH_NAME" --branch-ref "origin/$BRANCH_NAME"
+
       - name: Check if AS branch exists
         id: check_branch
         run: |
