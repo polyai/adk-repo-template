@@ -283,7 +283,11 @@ jobs:
           source .venv/bin/activate
           # Read via env, never spliced inline: the commit subject is
           # contributor-controlled and must not reach the shell as code.
-          MERGE_MESSAGE=$(git log -1 "$HEAD_SHA" --pretty=format:%s)
+          # Strip the project scope from the conventional-commit subject:
+          # feat(project_id): message -> feat: message. The scope is a git-side
+          # concern; inside Agent Studio the project is already implied.
+          MERGE_MESSAGE=$(git log -1 "$HEAD_SHA" --pretty=format:%s \
+            | sed -E 's/^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)\([^)]+\)!?:/\1:/')
           python .github/scripts/poly_adk_scripts/merge_branch.py \
             "agents/$PROJECT" \
             "$BRANCH_NAME" \
