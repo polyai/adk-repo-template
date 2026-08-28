@@ -114,6 +114,14 @@ jobs:
     needs: [detect-changes, lint-and-test]
     if: needs.detect-changes.outputs.has_projects == 'true'
     runs-on: ubuntu-latest
+    env:
+      POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
+      POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
+      POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
+      POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
+      POLY_ADK_KEY_DEV: ${{ secrets.POLY_ADK_KEY_DEV }}
+      POLY_ADK_KEY_STAGING: ${{ secrets.POLY_ADK_KEY_STAGING }}
+      POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
     strategy:
       fail-fast: false
       matrix:
@@ -161,14 +169,6 @@ jobs:
 
       - name: Check if AS branch exists
         id: check_branch
-        env:
-          POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
-          POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
-          POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
-          POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
-          POLY_ADK_KEY_DEV: ${{ secrets.POLY_ADK_KEY_DEV }}
-          POLY_ADK_KEY_STAGING: ${{ secrets.POLY_ADK_KEY_STAGING }}
-          POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
         run: |
           source .venv/bin/activate
           PROJECT_PATH="agents/${{ matrix.project }}"
@@ -193,14 +193,6 @@ jobs:
 
       - name: Push final state to AS branch
         if: steps.check_branch.outputs.exists == 'true'
-        env:
-          POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
-          POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
-          POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
-          POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
-          POLY_ADK_KEY_DEV: ${{ secrets.POLY_ADK_KEY_DEV }}
-          POLY_ADK_KEY_STAGING: ${{ secrets.POLY_ADK_KEY_STAGING }}
-          POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
         run: |
           source .venv/bin/activate
           python .github/scripts/poly_adk_scripts/push_to_branch.py \
@@ -209,14 +201,6 @@ jobs:
 
       - name: Merge AS branch to main
         if: steps.check_branch.outputs.exists == 'true'
-        env:
-          POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
-          POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
-          POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
-          POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
-          POLY_ADK_KEY_DEV: ${{ secrets.POLY_ADK_KEY_DEV }}
-          POLY_ADK_KEY_STAGING: ${{ secrets.POLY_ADK_KEY_STAGING }}
-          POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
         run: |
           source .venv/bin/activate
           MERGE_MESSAGE=$(git log -1 ${{ github.event.merge_group.head_sha }} --pretty=format:%s)
@@ -227,14 +211,6 @@ jobs:
 
       - name: Verify AS branch deleted after merge
         if: steps.check_branch.outputs.exists == 'true'
-        env:
-          POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
-          POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
-          POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
-          POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
-          POLY_ADK_KEY_DEV: ${{ secrets.POLY_ADK_KEY_DEV }}
-          POLY_ADK_KEY_STAGING: ${{ secrets.POLY_ADK_KEY_STAGING }}
-          POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
         run: |
           source .venv/bin/activate
           PROJECT_PATH="agents/${{ matrix.project }}"
