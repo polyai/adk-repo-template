@@ -17,7 +17,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
+
+      # Detection runs `git diff base..head` — two-dot compares the two commits
+      # directly and needs no shared ancestry, so a depth-1 fetch of the base is
+      # enough. Avoids the full-history clone fetch-depth:0 required.
+      - name: Fetch diff base
+        run: git fetch --depth=1 --no-tags origin ${{ github.event.merge_group.base_sha }}
 
       - name: Detect changed projects
         id: detect
@@ -134,9 +140,11 @@ jobs:
       matrix:
         project: ${{ fromJson(needs.detect-changes.outputs.projects) }}
     steps:
+      # Depth 1 is enough: the version-protection and stale-base steps fetch the
+      # extra refs they need shallowly, and the merge message reads the head commit.
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       # A re-run can't merge the PR (the queue already evicted the entry) — it can
       # only force-push a stale checkout to Agent Studio, reverting newer work.
