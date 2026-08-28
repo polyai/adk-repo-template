@@ -227,6 +227,44 @@ jobs:
             exit 1
           fi
 
+      # push_to_branch.py force-overwrites the whole project, so a checkout behind
+      # main for this project would revert those commits in Agent Studio. Runs
+      # immediately before the push to keep the race window minimal.
+      - name: Check merge-group base is still current for this project
+        if: steps.check_branch.outputs.exists == 'true' || steps.check_main_matches.outputs.matches == 'false'
+        env:
+          BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          PROJECT: ${{ matrix.project }}
+        run: |
+          MAIN_SHA=$(git ls-remote origin refs/heads/main | cut -f1)
+          if [ -z "$MAIN_SHA" ]; then
+            echo "Could not resolve origin/main"
+            exit 1
+          fi
+
+          if [ "$MAIN_SHA" = "$BASE_SHA" ]; then
+            echo "main is still at the merge-group base ($BASE_SHA)"
+            exit 0
+          fi
+
+          git fetch --depth=1 --no-tags origin "$BASE_SHA" "$MAIN_SHA"
+
+          if git diff --quiet "$BASE_SHA" "$MAIN_SHA" -- "agents/$PROJECT"; then
+            echo "main advanced to $MAIN_SHA but left agents/$PROJECT untouched"
+            exit 0
+          fi
+
+          echo "agents/$PROJECT changed on main after this merge-group commit was built."
+          echo "  merge-group base: $BASE_SHA"
+          echo "  current main:     $MAIN_SHA"
+          echo ""
+          echo "  Pushing this checkout would revert those changes in Agent Studio."
+          echo "  Changed files:"
+          git diff --name-only "$BASE_SHA" "$MAIN_SHA" -- "agents/$PROJECT" | sed 's/^/    /'
+          echo ""
+          echo "  Re-queue the PR — the rebuilt entry will include them."
+          exit 1
+
       - name: Push final state to AS branch
         if: steps.check_branch.outputs.exists == 'true' || steps.check_main_matches.outputs.matches == 'false'
         run: |
