@@ -24,8 +24,6 @@ def push_to_branch(base_path: str, branch_name: str) -> tuple[bool, str]:
 
     conflicts, modified_files, new_files, deleted_files = project.project_status()
 
-    print(f'Pushing changes to branch "{branch_name}"\n')
-
     if conflicts:
         print("\nFiles with merge conflicts:")
         for file_name in conflicts:
@@ -45,6 +43,18 @@ def push_to_branch(base_path: str, branch_name: str) -> tuple[bool, str]:
         print("\nModified files:")
         for file_name in modified_files:
             print(f"- {GREEN_START}{file_name}{COLOUR_END}")
+
+    if not any([modified_files, new_files, deleted_files]):
+        return False, "No changes detected"
+
+    # Only create the branch once we know there is something to push, so PRs that
+    # touch no project resources don't leave empty branches behind in Agent Studio.
+    if project.branch_id == "main":
+        project.create_branch(branch_name)
+        project.load_project()
+        project._not_loaded_resources = []
+
+    print(f'Pushing changes to branch "{branch_name}"\n')
 
     success, error, _commands = project.push_project(force=True, skip_validation=True)
     return success, error

@@ -8,6 +8,8 @@ logging.getLogger("poly").setLevel(logging.WARNING)
 def load_local_agent_studio_project(base_path: str, branch_name: str) -> AgentStudioProject:
     """Load an Agent Studio project from the given base path and switch to the specified branch.
 
+    If the specified branch does not exist, the project will remain on the main branch.
+
     Args:
         base_path (str): The file path to the Agent Studio project.
         branch_name (str): The branch name to switch to.
@@ -23,8 +25,6 @@ def load_local_agent_studio_project(base_path: str, branch_name: str) -> AgentSt
         branch_id = branch_meta["branchId"]
         project.branch_id = branch_id
         project.api_handler.switch_branch(branch_id)
-    else:
-        project.create_branch(branch_name)
 
     project.load_project()
     project._not_loaded_resources = []
