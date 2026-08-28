@@ -77,6 +77,21 @@ def _get_conflict_path(conflict: dict) -> list[str]:
     return conflict["path"]
 
 
+def generate_messages(conflicts: list[dict], errors: list[dict]) -> list[str]:
+    """Render conflicts and errors from a merge attempt as human-readable lines."""
+    messages = []
+    for conflict in conflicts:
+        messages.append(f"Conflict: {_get_conflict_path(conflict)}")
+
+    for error in errors:
+        message = f"Error: {_get_error_message(error)}"
+        if error_path := error.get("path"):
+            message += f" - {error_path}"
+        messages.append(message)
+
+    return messages
+
+
 def merge_branch(base_path: str, branch_name: str, message: str) -> tuple[bool, str]:
     """Merge a branch in Agent Studio.
     Args:
@@ -95,18 +110,12 @@ def merge_branch(base_path: str, branch_name: str, message: str) -> tuple[bool, 
     success, conflicts, errors = project.merge_branch(
         message=message,
     )
-
-    messages = []
-    if conflicts:
-        for conflict in conflicts:
-            messages.append(f"Conflict: {_get_conflict_path(conflict)}")
+    messages = generate_messages(conflicts, errors)
 
     if errors:
         only_sync_errors = True
         for error in errors:
-            error_msg = _get_error_message(error)
-            messages.append(f"Error: {error_msg}")
-            lower_error = error_msg.lower()
+            lower_error = _get_error_message(error).lower()
             only_sync_errors &= (
                 "duplicate name" in lower_error or "duplicate parameter name" in lower_error
             )
@@ -115,21 +124,13 @@ def merge_branch(base_path: str, branch_name: str, message: str) -> tuple[bool, 
             return False, "\n".join(messages)
 
         print("Found duplicate name errors, attempting sync and merge")
-        messages = []
-        sync_success = project.sync_ids_with_sandbox()
-        if not sync_success:
-            messages.append("Error: Failed to sync IDs with sandbox")
-            return False, "\n".join(messages)
+        if not project.sync_ids_with_sandbox():
+            return False, "Error: Failed to sync IDs with sandbox"
 
         success, conflicts, errors = project.merge_branch(
             message=message,
         )
-
-        for conflict in conflicts:
-            messages.append(f"Conflict: {_get_conflict_path(conflict)}")
-
-        for error in errors:
-            messages.append(f"Error: {_get_error_message(error)}")
+        messages = generate_messages(conflicts, errors)
 
         if errors:
             print("Failed to resolve errors automatically")
@@ -151,15 +152,11 @@ def merge_branch(base_path: str, branch_name: str, message: str) -> tuple[bool, 
         if conflict_resolutions:
             print("Found conflicts, trying to resolve them automatically")
             print(conflict_resolutions)
-            messages = []
             success, conflicts, errors = project.merge_branch(
                 message=message,
                 conflict_resolutions=conflict_resolutions,
             )
-            for error in errors:
-                messages.append(f"Error: {_get_error_message(error)}")
-            for conflict in conflicts:
-                messages.append(f"Conflict: {_get_conflict_path(conflict)}")
+            messages = generate_messages(conflicts, errors)
 
         if conflicts or errors:
             print("Failed to resolve conflicts automatically")
