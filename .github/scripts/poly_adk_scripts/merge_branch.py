@@ -39,6 +39,7 @@ SUPPORTED_CONFLICT_RESOLUTIONS = [
     ["languages", "**"],
     ["translations", "**"],
     ["contentFilterSettings", "**"],
+    ["testing", "**"],
 ]
 
 
