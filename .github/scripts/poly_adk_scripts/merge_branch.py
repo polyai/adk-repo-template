@@ -1,5 +1,6 @@
 import argparse
 import sys
+import time
 
 from load_project import load_local_agent_studio_project
 
@@ -38,6 +39,7 @@ SUPPORTED_CONFLICT_RESOLUTIONS = [
     ["languages", "**"],
     ["translations", "**"],
     ["contentFilterSettings", "**"],
+    ["testing", "**"],
 ]
 
 
@@ -77,6 +79,59 @@ def _get_conflict_path(conflict: dict) -> list[str]:
     return conflict["path"]
 
 
+def generate_messages(conflicts: list[dict], errors: list[dict]) -> list[str]:
+    """Render conflicts and errors from a merge attempt as human-readable lines."""
+    messages = []
+    for conflict in conflicts:
+        messages.append(f"Conflict: {_get_conflict_path(conflict)}")
+
+    for error in errors:
+        message = f"Error: {_get_error_message(error)}"
+        if error_path := error.get("path"):
+            message += f" - {error_path}"
+        messages.append(message)
+
+    return messages
+
+
+SEQUENCE_MISMATCH_RETRY_DELAYS = (2, 5, 10)
+
+
+def _is_sequence_mismatch(errors: list[dict]) -> bool:
+    messages = (_get_error_message(error).lower() for error in errors)
+    return any("sequence mismatch" in m or "sequence_mismatch" in m for m in messages)
+
+
+def _merge_with_retry(project, message: str, conflict_resolutions: list[dict] | None = None):
+    """Merge, retrying when the branch sequence moved underneath us.
+
+    A draft deployment finishing mid-merge appends an event to the branch and the API
+    rejects the merge with SEQUENCE_MISMATCH. The ADK refetches the sequence on each
+    call, so a plain retry picks up the new value.
+    """
+    attempts = len(SEQUENCE_MISMATCH_RETRY_DELAYS)
+    for attempt, delay in enumerate(SEQUENCE_MISMATCH_RETRY_DELAYS, start=1):
+        try:
+            success, conflicts, errors = project.merge_branch(
+                message=message, conflict_resolutions=conflict_resolutions
+            )
+        except ValueError as e:
+            if "uncommitted changes" in str(e).lower():
+                print("Merge blocked by uncommitted local changes:")
+                for file, diff in project.get_diffs().items():
+                    print(file)
+                    print(diff)
+            raise
+        if not _is_sequence_mismatch(errors):
+            return success, conflicts, errors
+        print(
+            f"Sequence mismatch (branch changed during merge) - retrying in {delay}s "
+            f"(attempt {attempt}/{attempts})"
+        )
+        time.sleep(delay)
+    return project.merge_branch(message=message, conflict_resolutions=conflict_resolutions)
+
+
 def merge_branch(base_path: str, branch_name: str, message: str) -> tuple[bool, str]:
     """Merge a branch in Agent Studio.
     Args:
@@ -91,45 +146,37 @@ def merge_branch(base_path: str, branch_name: str, message: str) -> tuple[bool, 
     """
     project = load_local_agent_studio_project(base_path, branch_name)
 
+    if project.branch_id == "main":
+        return False, "Cannot merge from the main branch."
+
     print("Attempting merge")
-    success, conflicts, errors = project.merge_branch(
+    success, conflicts, errors = _merge_with_retry(
+        project,
         message=message,
     )
-
-    messages = []
-    if conflicts:
-        for conflict in conflicts:
-            messages.append(f"Conflict: {_get_conflict_path(conflict)}")
+    messages = generate_messages(conflicts, errors)
 
     if errors:
         only_sync_errors = True
         for error in errors:
-            error_msg = _get_error_message(error)
-            messages.append(f"Error: {error_msg}")
-            lower_error = error_msg.lower()
+            lower_error = _get_error_message(error).lower()
             only_sync_errors &= (
-                "duplicate name" in lower_error or "duplicate parameter name" in lower_error
+                "duplicate" in lower_error
+                or "function step name must be unique across all flows" in lower_error
             )
 
         if not only_sync_errors:
             return False, "\n".join(messages)
 
-        print("Found duplicate name errors, attempting sync and merge")
-        messages = []
-        sync_success = project.sync_ids_with_sandbox()
-        if not sync_success:
-            messages.append("Error: Failed to sync IDs with sandbox")
-            return False, "\n".join(messages)
+        print("Found ID sync errors, attempting sync and merge")
+        if not project.sync_ids_with_sandbox():
+            return False, "Error: Failed to sync IDs with sandbox"
 
-        success, conflicts, errors = project.merge_branch(
+        success, conflicts, errors = _merge_with_retry(
+            project,
             message=message,
         )
-
-        for conflict in conflicts:
-            messages.append(f"Conflict: {_get_conflict_path(conflict)}")
-
-        for error in errors:
-            messages.append(f"Error: {_get_error_message(error)}")
+        messages = generate_messages(conflicts, errors)
 
         if errors:
             print("Failed to resolve errors automatically")
@@ -151,15 +198,12 @@ def merge_branch(base_path: str, branch_name: str, message: str) -> tuple[bool, 
         if conflict_resolutions:
             print("Found conflicts, trying to resolve them automatically")
             print(conflict_resolutions)
-            messages = []
-            success, conflicts, errors = project.merge_branch(
+            success, conflicts, errors = _merge_with_retry(
+                project,
                 message=message,
                 conflict_resolutions=conflict_resolutions,
             )
-            for error in errors:
-                messages.append(f"Error: {_get_error_message(error)}")
-            for conflict in conflicts:
-                messages.append(f"Conflict: {_get_conflict_path(conflict)}")
+            messages = generate_messages(conflicts, errors)
 
         if conflicts or errors:
             print("Failed to resolve conflicts automatically")

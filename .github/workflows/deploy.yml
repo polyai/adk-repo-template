@@ -1,4 +1,5 @@
 name: Deploy
+run-name: "Deploy — ${{ github.event.merge_group.head_commit.message }}"
 
 on:
   merge_group:
@@ -16,7 +17,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
+
+      # Detection runs `git diff base..head` — two-dot compares the two commits
+      # directly and needs no shared ancestry, so a depth-1 fetch of the base is
+      # enough. Avoids the full-history clone fetch-depth:0 required.
+      - name: Fetch diff base
+        run: git fetch --depth=1 --no-tags origin ${{ github.event.merge_group.base_sha }}
 
       - name: Detect changed projects
         id: detect
@@ -114,14 +121,41 @@ jobs:
     needs: [detect-changes, lint-and-test]
     if: needs.detect-changes.outputs.has_projects == 'true'
     runs-on: ubuntu-latest
+    env:
+      POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
+      POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
+      POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
+      POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
+      POLY_ADK_KEY_DEV: ${{ secrets.POLY_ADK_KEY_DEV }}
+      POLY_ADK_KEY_STAGING: ${{ secrets.POLY_ADK_KEY_STAGING }}
+      POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
+    # Serialise per project, not per job: two queue entries touching the same
+    # project must not merge to Agent Studio concurrently, but different projects
+    # in one PR should still run in parallel.
+    concurrency:
+      group: merge-as-${{ github.event.merge_group.base_ref }}-${{ matrix.project }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       matrix:
         project: ${{ fromJson(needs.detect-changes.outputs.projects) }}
     steps:
+      # Depth 1 is enough: the version-protection and stale-base steps fetch the
+      # extra refs they need shallowly, and the merge message reads the head commit.
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
+
+      # A re-run can't merge the PR (the queue already evicted the entry) — it can
+      # only force-push a stale checkout to Agent Studio, reverting newer work.
+      - name: Refuse re-runs of merge-queue attempts
+        run: |
+          if [ "${GITHUB_RUN_ATTEMPT:-1}" -gt 1 ]; then
+            echo "Re-running a merge-queue run cannot merge the PR and would push a stale"
+            echo "checkout to Agent Studio. Add the PR to the merge queue again instead."
+            exit 1
+          fi
+          echo "First attempt"
 
       - uses: astral-sh/setup-uv@v7
 
@@ -159,16 +193,20 @@ jobs:
           echo "Original branch name: $ORIGINAL_BRANCH"
           echo "BRANCH_NAME=$ORIGINAL_BRANCH" >> $GITHUB_OUTPUT
 
+      - name: Check Poly ADK version protection
+        env:
+          PROJECT: ${{ matrix.project }}
+          BRANCH_NAME: ${{ steps.extract_branch.outputs.BRANCH_NAME }}
+        run: |
+          source .venv/bin/activate
+          # Only the branch/main tips are needed; keep the fetch shallow so it does
+          # not unshallow the checkout and add latency per parallel merge job.
+          git fetch --depth=1 origin main "$BRANCH_NAME" 2>/dev/null || true
+          python .github/scripts/poly_adk_scripts/check_poly_adk_version_protection.py \
+            "[\"$PROJECT\"]" "$BRANCH_NAME" --branch-ref "origin/$BRANCH_NAME"
+
       - name: Check if AS branch exists
         id: check_branch
-        env:
-          POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
-          POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
-          POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
-          POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
-          POLY_ADK_KEY_DEV: ${{ secrets.POLY_ADK_KEY_DEV }}
-          POLY_ADK_KEY_STAGING: ${{ secrets.POLY_ADK_KEY_STAGING }}
-          POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
         run: |
           source .venv/bin/activate
           PROJECT_PATH="agents/${{ matrix.project }}"
@@ -184,23 +222,78 @@ jobs:
             echo "Branch $BRANCH_NAME exists"
             echo "exists=true" >> $GITHUB_OUTPUT
           elif [ $EXIT_CODE -eq 1 ]; then
-            echo "Branch $BRANCH_NAME does not exist, skipping merge"
+            echo "Branch $BRANCH_NAME does not exist — checking if AS main is already in sync"
             echo "exists=false" >> $GITHUB_OUTPUT
           else
             echo "Error checking branch existence"
             exit 1
           fi
 
-      - name: Push final state to AS branch
-        if: steps.check_branch.outputs.exists == 'true'
+      # Only needed when the branch is gone: if it still exists we push+merge
+      # unconditionally below regardless of whether main already matches.
+      - name: Check if AS main matches merged content
+        id: check_main_matches
+        if: steps.check_branch.outputs.exists == 'false'
+        run: |
+          source .venv/bin/activate
+          PROJECT_PATH="agents/${{ matrix.project }}"
+
+          set +e
+          python .github/scripts/poly_adk_scripts/check_as_parent_matches_local.py "$PROJECT_PATH"
+          EXIT_CODE=$?
+          set -e
+
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo "AS main already matches merged(git main, git branch), nothing to do"
+            echo "matches=true" >> $GITHUB_OUTPUT
+          elif [ $EXIT_CODE -eq 1 ]; then
+            echo "AS main differs from merged(git main, git branch), pushing and merging"
+            echo "matches=false" >> $GITHUB_OUTPUT
+          else
+            echo "Error checking AS main state"
+            exit 1
+          fi
+
+      # push_to_branch.py force-overwrites the whole project, so a checkout behind
+      # main for this project would revert those commits in Agent Studio. Runs
+      # immediately before the push to keep the race window minimal.
+      - name: Check merge-group base is still current for this project
+        if: steps.check_branch.outputs.exists == 'true' || steps.check_main_matches.outputs.matches == 'false'
         env:
-          POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
-          POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
-          POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
-          POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
-          POLY_ADK_KEY_DEV: ${{ secrets.POLY_ADK_KEY_DEV }}
-          POLY_ADK_KEY_STAGING: ${{ secrets.POLY_ADK_KEY_STAGING }}
-          POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
+          BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          PROJECT: ${{ matrix.project }}
+        run: |
+          MAIN_SHA=$(git ls-remote origin refs/heads/main | cut -f1)
+          if [ -z "$MAIN_SHA" ]; then
+            echo "Could not resolve origin/main"
+            exit 1
+          fi
+
+          if [ "$MAIN_SHA" = "$BASE_SHA" ]; then
+            echo "main is still at the merge-group base ($BASE_SHA)"
+            exit 0
+          fi
+
+          git fetch --depth=1 --no-tags origin "$BASE_SHA" "$MAIN_SHA"
+
+          if git diff --quiet "$BASE_SHA" "$MAIN_SHA" -- "agents/$PROJECT"; then
+            echo "main advanced to $MAIN_SHA but left agents/$PROJECT untouched"
+            exit 0
+          fi
+
+          echo "agents/$PROJECT changed on main after this merge-group commit was built."
+          echo "  merge-group base: $BASE_SHA"
+          echo "  current main:     $MAIN_SHA"
+          echo ""
+          echo "  Pushing this checkout would revert those changes in Agent Studio."
+          echo "  Changed files:"
+          git diff --name-only "$BASE_SHA" "$MAIN_SHA" -- "agents/$PROJECT" | sed 's/^/    /'
+          echo ""
+          echo "  Re-queue the PR — the rebuilt entry will include them."
+          exit 1
+
+      - name: Push final state to AS branch
+        if: steps.check_branch.outputs.exists == 'true' || steps.check_main_matches.outputs.matches == 'false'
         run: |
           source .venv/bin/activate
           python .github/scripts/poly_adk_scripts/push_to_branch.py \
@@ -208,33 +301,28 @@ jobs:
             "${{ steps.extract_branch.outputs.BRANCH_NAME }}"
 
       - name: Merge AS branch to main
-        if: steps.check_branch.outputs.exists == 'true'
+        if: steps.check_branch.outputs.exists == 'true' || steps.check_main_matches.outputs.matches == 'false'
         env:
-          POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
-          POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
-          POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
-          POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
-          POLY_ADK_KEY_DEV: ${{ secrets.POLY_ADK_KEY_DEV }}
-          POLY_ADK_KEY_STAGING: ${{ secrets.POLY_ADK_KEY_STAGING }}
-          POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
+          HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          PROJECT: ${{ matrix.project }}
+          BRANCH_NAME: ${{ steps.extract_branch.outputs.BRANCH_NAME }}
         run: |
           source .venv/bin/activate
-          MERGE_MESSAGE=$(git log -1 ${{ github.event.merge_group.head_sha }} --pretty=format:%s)
+          # Strip the project scope from the conventional-commit subject:
+          # feat(project_id): message -> feat: message. The scope is a git-side
+          # concern; inside Agent Studio the project is already implied.
+          #
+          # Inputs come from env, never spliced inline: the subject is
+          # contributor-controlled and must not reach the shell as code.
+          MERGE_MESSAGE=$(git log -1 "$HEAD_SHA" --pretty=format:%s \
+            | sed -E 's/^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)\([^)]+\)!?:/\1:/')
           python .github/scripts/poly_adk_scripts/merge_branch.py \
-            "agents/${{ matrix.project }}" \
-            "${{ steps.extract_branch.outputs.BRANCH_NAME }}" \
+            "agents/$PROJECT" \
+            "$BRANCH_NAME" \
             "$MERGE_MESSAGE"
 
       - name: Verify AS branch deleted after merge
-        if: steps.check_branch.outputs.exists == 'true'
-        env:
-          POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
-          POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
-          POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
-          POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
-          POLY_ADK_KEY_DEV: ${{ secrets.POLY_ADK_KEY_DEV }}
-          POLY_ADK_KEY_STAGING: ${{ secrets.POLY_ADK_KEY_STAGING }}
-          POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
+        if: steps.check_branch.outputs.exists == 'true' || steps.check_main_matches.outputs.matches == 'false'
         run: |
           source .venv/bin/activate
           PROJECT_PATH="agents/${{ matrix.project }}"

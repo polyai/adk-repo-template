@@ -9,7 +9,7 @@ description = "ADK-managed agent projects"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-  "polyai-adk>=0.25,<0.26",
+  "polyai-adk>=0.47,<0.48",
 ]
 
 [project.optional-dependencies]
