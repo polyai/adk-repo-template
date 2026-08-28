@@ -275,12 +275,18 @@ jobs:
 
       - name: Merge AS branch to main
         if: steps.check_branch.outputs.exists == 'true' || steps.check_main_matches.outputs.matches == 'false'
+        env:
+          HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          PROJECT: ${{ matrix.project }}
+          BRANCH_NAME: ${{ steps.extract_branch.outputs.BRANCH_NAME }}
         run: |
           source .venv/bin/activate
-          MERGE_MESSAGE=$(git log -1 ${{ github.event.merge_group.head_sha }} --pretty=format:%s)
+          # Read via env, never spliced inline: the commit subject is
+          # contributor-controlled and must not reach the shell as code.
+          MERGE_MESSAGE=$(git log -1 "$HEAD_SHA" --pretty=format:%s)
           python .github/scripts/poly_adk_scripts/merge_branch.py \
-            "agents/${{ matrix.project }}" \
-            "${{ steps.extract_branch.outputs.BRANCH_NAME }}" \
+            "agents/$PROJECT" \
+            "$BRANCH_NAME" \
             "$MERGE_MESSAGE"
 
       - name: Verify AS branch deleted after merge
