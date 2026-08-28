@@ -145,6 +145,9 @@ def merge_branch(base_path: str, branch_name: str, message: str) -> tuple[bool, 
     """
     project = load_local_agent_studio_project(base_path, branch_name)
 
+    if project.branch_id == "main":
+        return False, "Cannot merge from the main branch."
+
     print("Attempting merge")
     success, conflicts, errors = _merge_with_retry(
         project,
