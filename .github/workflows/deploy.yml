@@ -192,6 +192,7 @@ jobs:
           echo "Extracted PR number: $PR_NUMBER"
           echo "Original branch name: $ORIGINAL_BRANCH"
           echo "BRANCH_NAME=$ORIGINAL_BRANCH" >> $GITHUB_OUTPUT
+          echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_OUTPUT
 
       - name: Check Poly ADK version protection
         env:
@@ -253,6 +254,72 @@ jobs:
             echo "Error checking AS main state"
             exit 1
           fi
+
+      # The sync check's format-aware fallback runs the repo's format hook
+      # (.github/scripts/format-project.sh) on the pulled projection before
+      # diffing; prettier is the only tool the hook needs that isn't already in
+      # the venv. Pin the same version sync_projects.yml installs — a mismatch
+      # shows up as false drift.
+      - name: Install prettier
+        if: steps.check_branch.outputs.exists == 'true' || steps.check_main_matches.outputs.matches == 'false'
+        run: npm install -g prettier@3.1.0
+
+      # The AS merge below can clobber Studio-side changes on the AS parent branch
+      # (the branch being merged into — main today) that a sync hasn't pulled back
+      # into git yet. Compare the AS parent against the merge-group base (parent
+      # git content, not the merged checkout) via a disposable worktree. "In sync"
+      # means a Sync Projects run would commit nothing: on a hash mismatch the
+      # script applies the sync's own pull+format pipeline to the worktree and
+      # asks git — so formatting-only divergence (which a sync can never clear)
+      # does not block the queue. A skip-as-sync-check label on the PR bypasses
+      # the check for known drift.
+      - name: Check AS parent branch is in sync with git
+        if: steps.check_branch.outputs.exists == 'true' || steps.check_main_matches.outputs.matches == 'false'
+        env:
+          BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          BASE_REF: ${{ github.event.merge_group.base_ref }}
+          PROJECT: ${{ matrix.project }}
+          PR_NUMBER: ${{ steps.extract_branch.outputs.PR_NUMBER }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh pr view "$PR_NUMBER" --json labels -q '.labels[].name' | grep -qx "skip-as-sync-check"; then
+            echo "skip-as-sync-check label on PR #$PR_NUMBER — skipping AS parent sync check"
+            exit 0
+          fi
+
+          # Same-name convention as the rest of the pipeline: the AS parent branch
+          # is named after the git branch this PR merges into.
+          PARENT_BRANCH="${BASE_REF#refs/heads/}"
+
+          if ! git cat-file -e "$BASE_SHA:agents/$PROJECT/project.yaml" 2>/dev/null; then
+            git fetch --depth=1 --no-tags origin "$BASE_SHA"
+          fi
+          if ! git cat-file -e "$BASE_SHA:agents/$PROJECT/project.yaml" 2>/dev/null; then
+            echo "agents/$PROJECT does not exist at the merge-group base (new project) — nothing to clobber"
+            exit 0
+          fi
+
+          source .venv/bin/activate
+          git worktree add "$RUNNER_TEMP/parent-check" "$BASE_SHA"
+
+          set +e
+          python .github/scripts/poly_adk_scripts/check_parent_in_sync.py \
+            "$RUNNER_TEMP/parent-check/agents/$PROJECT" --branch "$PARENT_BRANCH"
+          EXIT_CODE=$?
+          set -e
+
+          git worktree remove --force "$RUNNER_TEMP/parent-check"
+
+          if [ $EXIT_CODE -eq 1 ]; then
+            echo "::error::AS branch $PARENT_BRANCH is not in sync with git $PARENT_BRANCH for $PROJECT."
+            echo "Run the Sync Projects workflow for this project, then re-queue the PR."
+            echo "To bypass, add the skip-as-sync-check label and re-queue."
+            exit 1
+          elif [ $EXIT_CODE -ne 0 ]; then
+            echo "Error checking AS parent branch sync state for $PROJECT"
+            exit "$EXIT_CODE"
+          fi
+          echo "AS $PARENT_BRANCH is in sync with git $PARENT_BRANCH for $PROJECT"
 
       # push_to_branch.py force-overwrites the whole project, so a checkout behind
       # main for this project would revert those commits in Agent Studio. Runs
