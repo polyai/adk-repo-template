@@ -29,6 +29,9 @@ on:
       deployment_type:
         description: "Deployment type (publish, rollback)"
         required: false
+      client_env:
+        description: "Environment the deployment landed on (sandbox, live)"
+        required: false
       deployment_message:
         description: "Deployment message"
         required: false
@@ -299,6 +302,7 @@ jobs:
           INPUT_CORRELATION_ID: ${{ inputs.correlation_id }}
           INPUT_ARTIFACT_VERSION: ${{ inputs.artifact_version }}
           INPUT_DEPLOYMENT_TYPE: ${{ inputs.deployment_type }}
+          INPUT_CLIENT_ENV: ${{ inputs.client_env }}
         run: |
           source .venv/bin/activate
           PROJECT_PATH="agents/${{ matrix.project }}"
@@ -311,12 +315,10 @@ jobs:
 
           echo "Changes detected, formatting and committing..."
 
-          cd "$PROJECT_PATH"
-          ruff format . || true
-          ruff check . --fix || true
-          prettier --write "**/*.{yaml,yml}" || true
-          git add .
-          cd "$GITHUB_WORKSPACE"
+          # The repo's formatting pass — shared with the AS parent sync check in
+          # deploy.yml, which treats "a sync would commit nothing" as in sync.
+          ./.github/scripts/format-project.sh "$PROJECT_PATH"
+          git add "$PROJECT_PATH"
 
           echo "=== Changes ==="
           git diff --cached --name-status -- "$PROJECT_PATH"
@@ -334,12 +336,20 @@ jobs:
             SUBJECT_BODY="Sync with Agent Studio"
           fi
 
-          COMMIT_MSG="chore($PROJECT_NAME): $SUBJECT_BODY"
+          # Rollback syncs are labeled revert() so they stand out from
+          # ordinary publish syncs in git log
+          if [ "$INPUT_DEPLOYMENT_TYPE" = "rollback" ]; then
+            COMMIT_TYPE="revert"
+          else
+            COMMIT_TYPE="chore"
+          fi
+          COMMIT_MSG="$COMMIT_TYPE($PROJECT_NAME): $SUBJECT_BODY"
           if [ -n "$INPUT_CORRELATION_ID" ]; then
             COMMIT_MSG="$COMMIT_MSG (webhook)"
             COMMIT_MSG=$(printf '%s\n\nCorrelation ID: %s' "$COMMIT_MSG" "$INPUT_CORRELATION_ID")
             [ -n "$INPUT_ARTIFACT_VERSION" ] && COMMIT_MSG=$(printf '%s\nArtifact version: %s' "$COMMIT_MSG" "$INPUT_ARTIFACT_VERSION")
             [ -n "$INPUT_DEPLOYMENT_TYPE" ] && COMMIT_MSG=$(printf '%s\nDeployment type: %s' "$COMMIT_MSG" "$INPUT_DEPLOYMENT_TYPE")
+            [ -n "$INPUT_CLIENT_ENV" ] && COMMIT_MSG=$(printf '%s\nEnvironment: %s' "$COMMIT_MSG" "$INPUT_CLIENT_ENV")
             [ -n "$INPUT_USER_EMAIL" ] && COMMIT_MSG=$(printf '%s\nUser: %s' "$COMMIT_MSG" "$INPUT_USER_EMAIL")
             [ -n "$INPUT_VERSION_HASH" ] && COMMIT_MSG=$(printf '%s\nVersion hash: %s' "$COMMIT_MSG" "$INPUT_VERSION_HASH")
           fi

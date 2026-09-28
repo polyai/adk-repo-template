@@ -68,7 +68,7 @@ jobs:
         run: |
           uv venv
           source .venv/bin/activate
-          uv pip install -e ".[dev]"
+          uv pip install -e ".[ci]"
 
       - name: Lint with ruff
         run: |

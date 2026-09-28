@@ -1,10 +1,11 @@
 import argparse
 import sys
 
-from poly.project import AgentStudioProject
+from load_project import fetch_project_state
 
 # Exit codes. A non-zero code here is a state rather than an error, mirroring
-# check_branch_exists.py and check_as_parent_matches_local.py.
+# check_branch_exists.py and check_as_parent_matches_local.py. (Note
+# check_parent_in_sync.py uses 2 for errors — different.)
 EXIT_PULLED = 0
 EXIT_FAILED = 1
 EXIT_NO_CHANGES = 2
@@ -28,14 +29,8 @@ def pull_project(base_path: str, force: bool = False) -> int:
         EXIT_PULLED, EXIT_NO_CHANGES or EXIT_FAILED.
     """
     try:
-        project = AgentStudioProject.from_file_path(base_path)
-        # Set the branch before touching api_handler — it is a lazy property that
-        # bakes in branch_id on first access.
-        project.branch_id = "main"
-
         # Fetch only: updates the tracked remote state, leaves local files alone.
-        projection = project.fetch_project()
-        project._not_loaded_resources = []
+        project, projection = fetch_project_state(base_path)
 
         if not force:
             conflicts, modified_files, new_files, deleted_files = project.project_status()
