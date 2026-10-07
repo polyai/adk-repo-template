@@ -63,7 +63,7 @@ jobs:
           BRANCH: ${{ inputs.branch || github.event.client_payload.branch || 'main' }}
           FROM_DEPLOYMENT: ${{ github.event.client_payload.deployment && 'true' || 'false' }}
           ARTIFACT_VERSION: ${{ github.event.client_payload.deployment.artifact_version }}
-          DEPLOYMENT_TYPE: ${{ github.event.client_payload.deployment.deployment_type }}
+          DEPLOYMENT_TYPE: ${{ github.event.client_payload.deployment.deployment_type || (startsWith(github.event.action, 'project-rollback-') && 'rollback') || (startsWith(github.event.action, 'project-publish-') && 'publish') || '' }}
           CLIENT_ENV: ${{ github.event.client_payload.deployment.client_env }}
           DEPLOYMENT_MESSAGE: ${{ github.event.client_payload.deployment.deployment_message }}
           VERSION_HASH: ${{ github.event.client_payload.deployment.version_hash }}
