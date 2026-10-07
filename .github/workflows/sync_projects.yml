@@ -74,9 +74,14 @@ jobs:
             { echo "$1<<$delim"; printf '%s\n' "$2"; echo "$delim"; } >> "$GITHUB_OUTPUT"
           }
 
-          if [ "$EVENT_NAME" = repository_dispatch ] && { [ -z "$ACCOUNT_ID" ] || [ -z "$PROJECT_ID" ]; }; then
-            echo "::error::Dispatches must set client_payload.account_id and client_payload.project_id"
-            exit 1
+          # find-projects reads an empty or "*" ID as "every project", which only manual runs may ask for.
+          if [ "$EVENT_NAME" = repository_dispatch ]; then
+            for id in "$ACCOUNT_ID" "$PROJECT_ID"; do
+              if [ -z "$id" ] || [ "$id" = "*" ]; then
+                echo "::error::Dispatches must set client_payload.account_id and client_payload.project_id to a single project"
+                exit 1
+              fi
+            done
           fi
 
           if [[ "$BRANCH" == refs/* ]] || ! git check-ref-format --branch "$BRANCH" > /dev/null; then
@@ -215,6 +220,7 @@ jobs:
       - name: Find projects
         id: find
         env:
+          EVENT_NAME: ${{ github.event_name }}
           INPUT_ACCOUNT_ID: ${{ needs.resolve.outputs.account_id }}
           INPUT_PROJECT_ID: ${{ needs.resolve.outputs.project_id }}
         run: |
@@ -260,6 +266,8 @@ jobs:
             echo "::error::No projects found"
             echo "has_projects=false" >> $GITHUB_OUTPUT
             echo "projects=[]" >> $GITHUB_OUTPUT
+            # A dispatch names one project, so finding none means the sync didn't happen.
+            [ "$EVENT_NAME" = repository_dispatch ] && exit 1
             exit 0
           fi
 

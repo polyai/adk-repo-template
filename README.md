@@ -80,7 +80,7 @@ To have Agent Studio dispatch a sync, add this webhook to the project's `agent_s
 }
 ```
 
-The `github-sync-token` secret in Agent Studio holds `Bearer <token>`, where the token is a fine-grained personal access token with **Contents: Read and write** on this repository only. An optional top-level `branch` picks the branch to sync into, and defaults to `main`. Keep the deployment under `deployment`: GitHub rejects a `client_payload` with more than 10 top-level properties.
+The `github-sync-token` secret in Agent Studio holds `Bearer <token>`, where the token is a fine-grained personal access token with **Contents: Read and write** on this repository only. An optional `branch` inside `client_payload` picks the branch to sync into, and defaults to `main`. Keep the deployment under `deployment`: GitHub rejects a `client_payload` with more than 10 top-level properties.
 
 The workflow runs on `project-publish-live` and `project-rollback-live`. GitHub accepts a dispatch with any other event type, such as a deployment to `pre-release`, but it starts no run and nothing reports an error. If a second dispatch for the same project and branch arrives while a sync is still running, the second cancels the first and syncs both changes.
 
