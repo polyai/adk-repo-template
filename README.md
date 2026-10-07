@@ -80,7 +80,7 @@ To have Agent Studio dispatch a sync, add this webhook to the project's `agent_s
 }
 ```
 
-The `github-sync-token` secret in Agent Studio holds `Bearer <token>`, where the token is a fine-grained personal access token with **Contents: Read and write** on this repository only. Keep the deployment under `deployment`: GitHub rejects a `client_payload` with more than 10 top-level properties. The workflow syncs publishes and rollbacks to sandbox or live, and skips any other deployment.
+The `github-sync-token` secret in Agent Studio holds `Bearer <token>`, where the token is a fine-grained personal access token with **Contents: Read and write** on this repository only. An optional top-level `branch` picks the branch to sync into, and defaults to `main`. Keep the deployment under `deployment`: GitHub rejects a `client_payload` with more than 10 top-level properties. The workflow syncs publishes and rollbacks to sandbox or live, and skips any other deployment.
 
 > **Warning:** If changes are made in Agent Studio and not synced to the repo, the next PR merge will overwrite those changes. Without the webhook, run a sync after any branch is merged in the Agent Studio UI.
 

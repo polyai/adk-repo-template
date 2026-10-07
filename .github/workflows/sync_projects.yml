@@ -58,7 +58,7 @@ jobs:
           # so new deployment fields can't push client_payload past GitHub's 10 top-level properties.
           ACCOUNT_ID: ${{ inputs.account_id || github.event.client_payload.account_id }}
           PROJECT_ID: ${{ inputs.project_id || github.event.client_payload.project_id }}
-          BRANCH: ${{ inputs.branch || 'main' }}
+          BRANCH: ${{ inputs.branch || github.event.client_payload.branch || 'main' }}
           FROM_DEPLOYMENT: ${{ github.event.client_payload.deployment && 'true' || 'false' }}
           ARTIFACT_VERSION: ${{ github.event.client_payload.deployment.artifact_version }}
           DEPLOYMENT_TYPE: ${{ github.event.client_payload.deployment.deployment_type }}
@@ -71,6 +71,11 @@ jobs:
             local delim="EOF_$(openssl rand -hex 8)"
             { echo "$1<<$delim"; printf '%s\n' "$2"; echo "$delim"; } >> "$GITHUB_OUTPUT"
           }
+
+          if ! git check-ref-format --branch "$BRANCH" > /dev/null; then
+            echo "::error::Invalid branch name in sync request"
+            exit 1
+          fi
 
           SHOULD_SYNC=true
           if [ "$FROM_DEPLOYMENT" = true ]; then
