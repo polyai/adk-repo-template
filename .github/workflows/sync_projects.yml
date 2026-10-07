@@ -5,7 +5,7 @@ on:
     # Run every day at 3 am UTC
     - cron: "0 3 * * *"
   repository_dispatch:
-    types: [project-sync]
+    types: [project-publish-live, project-publish-sandbox, project-rollback-live, project-rollback-sandbox]
   workflow_dispatch:
     inputs:
       account_id:
@@ -26,9 +26,10 @@ on:
     paths:
       - "pyproject.toml"
 
+# A newer dispatch for a project cancels the older run: it pulls the latest Agent Studio state anyway.
 concurrency:
-  group: ${{ github.event_name == 'repository_dispatch' && format('project-sync-{0}', github.event.client_payload.project_id || github.run_id) || format('sync-{0}', github.run_id) }}
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'repository_dispatch' && format('project-sync-{0}-{1}', github.event.client_payload.project_id || github.run_id, github.event.client_payload.branch || 'main') || format('sync-{0}', github.run_id) }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -39,7 +40,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions: {}
     outputs:
-      should_sync: ${{ steps.resolve.outputs.should_sync }}
       from_deployment: ${{ steps.resolve.outputs.from_deployment }}
       branch: ${{ steps.resolve.outputs.branch }}
       account_id: ${{ steps.resolve.outputs.account_id }}
@@ -54,7 +54,7 @@ jobs:
       - name: Read workflow inputs or dispatch payload
         id: resolve
         env:
-          # project-sync dispatches nest the Agent Studio deployment under client_payload.deployment
+          # Dispatches nest the Agent Studio deployment under client_payload.deployment
           # so new deployment fields can't push client_payload past GitHub's 10 top-level properties.
           EVENT_NAME: ${{ github.event_name }}
           ACCOUNT_ID: ${{ inputs.account_id || github.event.client_payload.account_id }}
@@ -74,28 +74,15 @@ jobs:
           }
 
           if [ "$EVENT_NAME" = repository_dispatch ] && { [ -z "$ACCOUNT_ID" ] || [ -z "$PROJECT_ID" ]; }; then
-            echo "::error::project-sync dispatches must set client_payload.account_id and client_payload.project_id"
+            echo "::error::Dispatches must set client_payload.account_id and client_payload.project_id"
             exit 1
           fi
 
-          if ! git check-ref-format --branch "$BRANCH" > /dev/null; then
+          if [[ "$BRANCH" == refs/* ]] || ! git check-ref-format --branch "$BRANCH" > /dev/null; then
             echo "::error::Invalid branch name in sync request"
             exit 1
           fi
 
-          SHOULD_SYNC=true
-          if [ "$FROM_DEPLOYMENT" = true ]; then
-            # Promotions and pre-release deployments don't change what main holds.
-            case "$DEPLOYMENT_TYPE" in publish|rollback) ;; *) SHOULD_SYNC=false ;; esac
-            case "$CLIENT_ENV" in sandbox|live) ;; *) SHOULD_SYNC=false ;; esac
-          fi
-
-          if [ "$SHOULD_SYNC" = false ]; then
-            echo "::notice::Skipping sync: only publish and rollback deployments to sandbox or live are synced"
-            echo "deployment_type=${DEPLOYMENT_TYPE:-<none>} client_env=${CLIENT_ENV:-<none>}"
-          fi
-
-          set_output should_sync "$SHOULD_SYNC"
           set_output from_deployment "$FROM_DEPLOYMENT"
           set_output branch "$BRANCH"
           set_output account_id "$ACCOUNT_ID"
@@ -110,7 +97,7 @@ jobs:
   wait-for-merge-queue:
     name: Wait for merge queue
     needs: [resolve]
-    if: needs.resolve.outputs.should_sync == 'true' && needs.resolve.outputs.from_deployment == 'true'
+    if: needs.resolve.outputs.from_deployment == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -198,7 +185,7 @@ jobs:
 
   find-projects:
     needs: [resolve, wait-for-merge-queue]
-    if: "!cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.should_sync == 'true'"
+    if: "!cancelled() && needs.resolve.result == 'success'"
     runs-on: ubuntu-latest
     outputs:
       projects: ${{ steps.find.outputs.projects }}
@@ -208,7 +195,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ needs.resolve.outputs.branch }}
+          ref: refs/heads/${{ needs.resolve.outputs.branch }}
 
       - name: Check if Poly ADK version changed
         id: check-version
@@ -306,7 +293,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.POLY_CONFIG_BOT_TOKEN }}
-          ref: ${{ needs.resolve.outputs.branch }}
+          ref: refs/heads/${{ needs.resolve.outputs.branch }}
           path: repo
           fetch-depth: 0
 
