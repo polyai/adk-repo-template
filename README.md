@@ -56,9 +56,33 @@ poly push
 
 ### Syncing from Agent Studio
 
-To pull the latest state from Agent Studio into the repo, run the **Sync Projects** workflow manually from the Actions tab.
+The **Sync Projects** workflow pulls the latest state from Agent Studio into the repo. It runs:
 
-> **Warning:** If changes are made in Agent Studio and not synced to the repo, the next PR merge will overwrite those changes. Ensure a sync is run after any branch is merged in the Agent Studio UI.
+- when Agent Studio sends a `project-sync` dispatch after a publish or rollback (see below)
+- nightly at 03:00 UTC
+- when the ADK version in `pyproject.toml` changes
+- manually, from the Actions tab
+
+To have Agent Studio dispatch a sync, add this webhook to the project's `agent_settings/experimental_config.json`, under `on_draft_published` and under `on_deployment` for `sandbox` and `live`:
+
+```json
+{
+  "url": "https://api.github.com/repos/<owner>/<repo>/dispatches",
+  "auth": { "header": "Authorization", "secret_name": "github-sync-token" },
+  "payload_template": {
+    "event_type": "project-sync",
+    "client_payload": {
+      "account_id": "{{account_id}}",
+      "project_id": "{{project_id}}",
+      "deployment": "{{payload}}"
+    }
+  }
+}
+```
+
+The `github-sync-token` secret in Agent Studio holds `Bearer <token>`, where the token is a fine-grained personal access token with **Contents: Read and write** on this repository only. Keep the deployment under `deployment`: GitHub rejects a `client_payload` with more than 10 top-level properties. The workflow syncs publishes and rollbacks to sandbox or live, and skips any other deployment.
+
+> **Warning:** If changes are made in Agent Studio and not synced to the repo, the next PR merge will overwrite those changes. Without the webhook, run a sync after any branch is merged in the Agent Studio UI.
 
 ### Updating the ADK version
 

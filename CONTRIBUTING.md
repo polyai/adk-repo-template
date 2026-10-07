@@ -12,7 +12,7 @@
   workflows/
     ci.yml                          # PR lint, test, push to AS branch
     deploy.yml                      # Merge queue: merge AS branch to AS main
-    sync_projects.yml               # Pull from AS into git (manual or on ADK version bump)
+    sync_projects.yml               # Pull from AS into git (AS dispatch, nightly, manual, ADK bump)
     delete-as-branch-on-pr-close.yml
     delete-as-branch-on-commit-removes-project.yml
   scripts/
@@ -110,7 +110,8 @@ PR enters merge queue
   → Verifies AS branch is deleted
 
 Changes made directly in Agent Studio?
-  → Run Sync Projects workflow (manual dispatch or triggered by ADK version bump)
+  → Sync Projects runs on the Agent Studio project-sync dispatch, if configured (see README)
+  → Otherwise run it manually; it also runs nightly and on an ADK version bump
   → Pulls from AS main, formats, commits to git main
   → WARNING: unsynced AS changes will be overwritten by the next PR merge
 ```
@@ -119,7 +120,8 @@ Changes made directly in Agent Studio?
 
 ```
 Did a human edit something in the Agent Studio UI?
-├─ Yes → Run the Sync Projects workflow to pull those changes into git.
+├─ Yes → Publishing syncs it automatically if the webhook is set up (see README);
+│        otherwise run the Sync Projects workflow to pull those changes into git.
 │        Do this BEFORE merging any PRs that touch the same project.
 │
 Did you update the ADK version in pyproject.toml?
