@@ -105,8 +105,6 @@ jobs:
           POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
           POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
           POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
-          POLY_ADK_KEY_DEV: ${{ secrets.POLY_ADK_KEY_DEV }}
-          POLY_ADK_KEY_STAGING: ${{ secrets.POLY_ADK_KEY_STAGING }}
           POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
         run: |
           source .venv/bin/activate
