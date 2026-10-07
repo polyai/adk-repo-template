@@ -20,27 +20,6 @@ on:
         description: "Branch to sync"
         required: false
         default: "main"
-      correlation_id:
-        description: "Correlation ID for traceability of webhook-triggered syncs"
-        required: false
-      artifact_version:
-        description: "Artifact version from deployment"
-        required: false
-      deployment_type:
-        description: "Deployment type (publish, rollback)"
-        required: false
-      client_env:
-        description: "Environment the deployment landed on (sandbox, live)"
-        required: false
-      deployment_message:
-        description: "Deployment message"
-        required: false
-      version_hash:
-        description: "Version hash"
-        required: false
-      user:
-        description: "User triggering the sync"
-        required: false
   push:
     branches:
       - main
@@ -48,7 +27,7 @@ on:
       - "pyproject.toml"
 
 concurrency:
-  group: ${{ (github.event_name == 'repository_dispatch' && format('webhook-sync-{0}', github.event.client_payload.project_id || github.run_id)) || (github.event_name == 'workflow_dispatch' && inputs.correlation_id != '' && format('webhook-sync-{0}', inputs.project_id)) || format('sync-{0}', github.run_id) }}
+  group: ${{ github.event_name == 'repository_dispatch' && format('project-sync-{0}', github.event.client_payload.project_id || github.run_id) || format('sync-{0}', github.run_id) }}
   cancel-in-progress: false
 
 permissions:
@@ -65,7 +44,6 @@ jobs:
       branch: ${{ steps.resolve.outputs.branch }}
       account_id: ${{ steps.resolve.outputs.account_id }}
       project_id: ${{ steps.resolve.outputs.project_id }}
-      correlation_id: ${{ steps.resolve.outputs.correlation_id }}
       artifact_version: ${{ steps.resolve.outputs.artifact_version }}
       deployment_type: ${{ steps.resolve.outputs.deployment_type }}
       client_env: ${{ steps.resolve.outputs.client_env }}
@@ -81,13 +59,13 @@ jobs:
           ACCOUNT_ID: ${{ inputs.account_id || github.event.client_payload.account_id }}
           PROJECT_ID: ${{ inputs.project_id || github.event.client_payload.project_id }}
           BRANCH: ${{ inputs.branch || 'main' }}
-          CORRELATION_ID: ${{ inputs.correlation_id || github.event.client_payload.deployment.deployment_id }}
-          ARTIFACT_VERSION: ${{ inputs.artifact_version || github.event.client_payload.deployment.artifact_version }}
-          DEPLOYMENT_TYPE: ${{ inputs.deployment_type || github.event.client_payload.deployment.deployment_type }}
-          CLIENT_ENV: ${{ inputs.client_env || github.event.client_payload.deployment.client_env }}
-          DEPLOYMENT_MESSAGE: ${{ inputs.deployment_message || github.event.client_payload.deployment.deployment_message }}
-          VERSION_HASH: ${{ inputs.version_hash || github.event.client_payload.deployment.version_hash }}
-          USER_EMAIL: ${{ inputs.user || github.event.client_payload.deployment.user }}
+          FROM_DEPLOYMENT: ${{ github.event.client_payload.deployment && 'true' || 'false' }}
+          ARTIFACT_VERSION: ${{ github.event.client_payload.deployment.artifact_version }}
+          DEPLOYMENT_TYPE: ${{ github.event.client_payload.deployment.deployment_type }}
+          CLIENT_ENV: ${{ github.event.client_payload.deployment.client_env }}
+          DEPLOYMENT_MESSAGE: ${{ github.event.client_payload.deployment.deployment_message }}
+          VERSION_HASH: ${{ github.event.client_payload.deployment.version_hash }}
+          USER_EMAIL: ${{ github.event.client_payload.deployment.user }}
         run: |
           set_output() {
             local delim="EOF_$(openssl rand -hex 8)"
@@ -95,9 +73,7 @@ jobs:
           }
 
           SHOULD_SYNC=true
-          FROM_DEPLOYMENT=false
-          if [ -n "$CORRELATION_ID" ]; then
-            FROM_DEPLOYMENT=true
+          if [ "$FROM_DEPLOYMENT" = true ]; then
             # Promotions and pre-release deployments don't change what main holds.
             case "$DEPLOYMENT_TYPE" in publish|rollback) ;; *) SHOULD_SYNC=false ;; esac
             case "$CLIENT_ENV" in sandbox|live) ;; *) SHOULD_SYNC=false ;; esac
@@ -113,7 +89,6 @@ jobs:
           set_output branch "$BRANCH"
           set_output account_id "$ACCOUNT_ID"
           set_output project_id "$PROJECT_ID"
-          set_output correlation_id "$CORRELATION_ID"
           set_output artifact_version "$ARTIFACT_VERSION"
           set_output deployment_type "$DEPLOYMENT_TYPE"
           set_output client_env "$CLIENT_ENV"
@@ -366,7 +341,7 @@ jobs:
           INPUT_DEPLOYMENT_MESSAGE: ${{ needs.resolve.outputs.deployment_message }}
           INPUT_VERSION_HASH: ${{ needs.resolve.outputs.version_hash }}
           INPUT_USER_EMAIL: ${{ needs.resolve.outputs.user }}
-          INPUT_CORRELATION_ID: ${{ needs.resolve.outputs.correlation_id }}
+          INPUT_FROM_DEPLOYMENT: ${{ needs.resolve.outputs.from_deployment }}
           INPUT_ARTIFACT_VERSION: ${{ needs.resolve.outputs.artifact_version }}
           INPUT_DEPLOYMENT_TYPE: ${{ needs.resolve.outputs.deployment_type }}
           INPUT_CLIENT_ENV: ${{ needs.resolve.outputs.client_env }}
@@ -411,14 +386,14 @@ jobs:
             COMMIT_TYPE="chore"
           fi
           COMMIT_MSG="$COMMIT_TYPE($PROJECT_NAME): $SUBJECT_BODY"
-          if [ -n "$INPUT_CORRELATION_ID" ]; then
-            COMMIT_MSG="$COMMIT_MSG (webhook)"
-            COMMIT_MSG=$(printf '%s\n\nCorrelation ID: %s' "$COMMIT_MSG" "$INPUT_CORRELATION_ID")
-            [ -n "$INPUT_ARTIFACT_VERSION" ] && COMMIT_MSG=$(printf '%s\nArtifact version: %s' "$COMMIT_MSG" "$INPUT_ARTIFACT_VERSION")
-            [ -n "$INPUT_DEPLOYMENT_TYPE" ] && COMMIT_MSG=$(printf '%s\nDeployment type: %s' "$COMMIT_MSG" "$INPUT_DEPLOYMENT_TYPE")
-            [ -n "$INPUT_CLIENT_ENV" ] && COMMIT_MSG=$(printf '%s\nEnvironment: %s' "$COMMIT_MSG" "$INPUT_CLIENT_ENV")
-            [ -n "$INPUT_USER_EMAIL" ] && COMMIT_MSG=$(printf '%s\nUser: %s' "$COMMIT_MSG" "$INPUT_USER_EMAIL")
-            [ -n "$INPUT_VERSION_HASH" ] && COMMIT_MSG=$(printf '%s\nVersion hash: %s' "$COMMIT_MSG" "$INPUT_VERSION_HASH")
+          if [ "$INPUT_FROM_DEPLOYMENT" = true ]; then
+            DETAILS=""
+            [ -n "$INPUT_ARTIFACT_VERSION" ] && DETAILS=$(printf '%s\nArtifact version: %s' "$DETAILS" "$INPUT_ARTIFACT_VERSION")
+            [ -n "$INPUT_DEPLOYMENT_TYPE" ] && DETAILS=$(printf '%s\nDeployment type: %s' "$DETAILS" "$INPUT_DEPLOYMENT_TYPE")
+            [ -n "$INPUT_CLIENT_ENV" ] && DETAILS=$(printf '%s\nEnvironment: %s' "$DETAILS" "$INPUT_CLIENT_ENV")
+            [ -n "$INPUT_USER_EMAIL" ] && DETAILS=$(printf '%s\nUser: %s' "$DETAILS" "$INPUT_USER_EMAIL")
+            [ -n "$INPUT_VERSION_HASH" ] && DETAILS=$(printf '%s\nVersion hash: %s' "$DETAILS" "$INPUT_VERSION_HASH")
+            [ -n "$DETAILS" ] && COMMIT_MSG=$(printf '%s\n%s' "$COMMIT_MSG" "$DETAILS")
           fi
 
           git commit -m "$COMMIT_MSG"
