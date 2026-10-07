@@ -252,6 +252,11 @@ jobs:
             dir=$(dirname "$file")
             # Extract account/project relative to agents/
             rel_path="${dir#agents/}"
+            # Project paths come from the branch being synced and become the job matrix.
+            if [[ ! "$rel_path" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
+              echo "::warning::Skipping project directory with an unexpected name"
+              continue
+            fi
 
             FILE_ACCOUNT_ID=$(read_yaml_field "$file" "account_id")
             FILE_PROJECT_ID=$(read_yaml_field "$file" "project_id")
@@ -340,9 +345,10 @@ jobs:
           # A Poly ADK version bump regenerates _gen/, which the skip-if-unchanged
           # check has nothing to compare against — always pull there.
           FORCE_PULL: ${{ github.event_name == 'push' && needs.find-projects.outputs.poly_adk_version_changed == 'true' }}
+          PROJECT: ${{ matrix.project }}
         run: |
           source "$GITHUB_WORKSPACE/tooling/.venv/bin/activate"
-          PROJECT_PATH="agents/${{ matrix.project }}"
+          PROJECT_PATH="agents/${PROJECT}"
           echo "Pulling $PROJECT_PATH from Agent Studio..."
 
           PULL_ARGS=""
@@ -371,10 +377,11 @@ jobs:
           INPUT_ARTIFACT_VERSION: ${{ needs.resolve.outputs.artifact_version }}
           INPUT_DEPLOYMENT_TYPE: ${{ needs.resolve.outputs.deployment_type }}
           INPUT_CLIENT_ENV: ${{ needs.resolve.outputs.client_env }}
+          PROJECT: ${{ matrix.project }}
         run: |
           source "$GITHUB_WORKSPACE/tooling/.venv/bin/activate"
-          PROJECT_PATH="agents/${{ matrix.project }}"
-          PROJECT_NAME="${{ matrix.project }}"
+          PROJECT_PATH="agents/${PROJECT}"
+          PROJECT_NAME="${PROJECT}"
 
           if [ -z "$(git status --porcelain "$PROJECT_PATH")" ]; then
             echo "No changes detected for $PROJECT_NAME"
