@@ -5,6 +5,7 @@ on:
     # Run every day at 3 am UTC
     - cron: "0 3 * * *"
   repository_dispatch:
+    # The sandbox types are for projects still on legacy deployments, where merges to main publish to sandbox.
     types: [project-publish-live, project-publish-sandbox, project-rollback-live, project-rollback-sandbox]
   workflow_dispatch:
     inputs:

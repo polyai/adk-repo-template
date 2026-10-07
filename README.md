@@ -63,7 +63,7 @@ The **Sync Projects** workflow pulls the latest state from Agent Studio into the
 - when the ADK version in `pyproject.toml` changes
 - manually, from the Actions tab
 
-To have Agent Studio dispatch a sync, add this webhook to the project's `agent_settings/experimental_config.json`, under `on_draft_published` and under `on_deployment` for `sandbox` and `live`:
+To have Agent Studio dispatch a sync, add this webhook to the project's `agent_settings/experimental_config.json`, under both `on_draft_published` (merges to main) and `on_deployment.live` (rollbacks):
 
 ```json
 {
@@ -82,7 +82,7 @@ To have Agent Studio dispatch a sync, add this webhook to the project's `agent_s
 
 The `github-sync-token` secret in Agent Studio holds `Bearer <token>`, where the token is a fine-grained personal access token with **Contents: Read and write** on this repository only. An optional top-level `branch` picks the branch to sync into, and defaults to `main`. Keep the deployment under `deployment`: GitHub rejects a `client_payload` with more than 10 top-level properties.
 
-The workflow runs on publishes and rollbacks to `sandbox` or `live` (`project-publish-live`, `project-rollback-sandbox`, and so on). Any other event type, such as a promotion or a deployment to `pre-release`, is accepted by GitHub but starts no run. If a second dispatch for the same project and branch arrives while a sync is still running, the second cancels the first and syncs both changes.
+The workflow runs on `project-publish-live` and `project-rollback-live`. GitHub accepts a dispatch with any other event type, such as a deployment to `pre-release`, but it starts no run and nothing reports an error. If a second dispatch for the same project and branch arrives while a sync is still running, the second cancels the first and syncs both changes.
 
 > **Warning:** If changes are made in Agent Studio and not synced to the repo, the next PR merge will overwrite those changes. Without the webhook, run a sync after any branch is merged in the Agent Studio UI.
 
