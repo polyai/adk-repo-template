@@ -22,13 +22,17 @@ jobs:
           fetch-depth: 0
 
       - name: Fetch PR refs
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           git fetch origin pull/${{ github.event.pull_request.number }}/head:pr-head 2>/dev/null || \
-          git fetch origin ${{ github.event.pull_request.head.ref }}:refs/heads/pr-head 2>/dev/null || true
+          git fetch origin "$HEAD_REF:refs/heads/pr-head" 2>/dev/null || true
 
       - name: Set branch name
         id: branch
-        run: echo "branch_name=${{ github.event.pull_request.head.ref }}" >> $GITHUB_OUTPUT
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: echo "branch_name=${HEAD_REF}" >> "$GITHUB_OUTPUT"
 
       - name: Detect changed projects
         id: detect
@@ -80,10 +84,12 @@ jobs:
           POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
           POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
           POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
+          AS_BRANCH: ${{ needs.detect.outputs.branch_name }}
+          PROJECT: ${{ matrix.project }}
         run: |
           source .venv/bin/activate
-          BRANCH_NAME="${{ needs.detect.outputs.branch_name }}"
-          echo "Deleting AS branch $BRANCH_NAME for ${{ matrix.project }}..."
+          BRANCH_NAME="${AS_BRANCH}"
+          echo "Deleting AS branch $BRANCH_NAME for ${PROJECT}..."
           python .github/scripts/poly_adk_scripts/delete_branch.py \
-            "agents/${{ matrix.project }}" \
+            "agents/${PROJECT}" \
             "$BRANCH_NAME"

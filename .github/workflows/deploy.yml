@@ -60,9 +60,11 @@ jobs:
           uv pip install -e ".[ci]"
 
       - name: Lint with ruff
+        env:
+          PROJECTS_JSON: ${{ needs.detect-changes.outputs.projects }}
         run: |
           source .venv/bin/activate
-          PROJECTS='${{ needs.detect-changes.outputs.projects }}'
+          PROJECTS="$PROJECTS_JSON"
           PATHS=()
           while IFS= read -r dir; do
             [ -z "$dir" ] && continue
@@ -73,9 +75,11 @@ jobs:
           fi
 
       - name: Format check with ruff
+        env:
+          PROJECTS_JSON: ${{ needs.detect-changes.outputs.projects }}
         run: |
           source .venv/bin/activate
-          PROJECTS='${{ needs.detect-changes.outputs.projects }}'
+          PROJECTS="$PROJECTS_JSON"
           PATHS=()
           while IFS= read -r dir; do
             [ -z "$dir" ] && continue
@@ -89,8 +93,10 @@ jobs:
         run: npm install -g prettier@3.1.0
 
       - name: Format check YAML with prettier
+        env:
+          PROJECTS_JSON: ${{ needs.detect-changes.outputs.projects }}
         run: |
-          PROJECTS='${{ needs.detect-changes.outputs.projects }}'
+          PROJECTS="$PROJECTS_JSON"
           PATHS=()
           while IFS= read -r dir; do
             [ -z "$dir" ] && continue
@@ -101,8 +107,10 @@ jobs:
           fi
 
       - name: Type check with ty
+        env:
+          PROJECTS_JSON: ${{ needs.detect-changes.outputs.projects }}
         run: |
-          PROJECTS='${{ needs.detect-changes.outputs.projects }}'
+          PROJECTS="$PROJECTS_JSON"
           PATHS=()
           while IFS= read -r dir; do
             [ -z "$dir" ] && continue
@@ -113,9 +121,11 @@ jobs:
           fi
 
       - name: Run tests
+        env:
+          PROJECTS_JSON: ${{ needs.detect-changes.outputs.projects }}
         run: |
           source .venv/bin/activate
-          .github/scripts/run-tests.sh '${{ needs.detect-changes.outputs.projects }}'
+          .github/scripts/run-tests.sh "$PROJECTS_JSON"
 
   merge-as-branches:
     needs: [detect-changes, lint-and-test]
@@ -206,12 +216,15 @@ jobs:
 
       - name: Check if AS branch exists
         id: check_branch
+        env:
+          PROJECT: ${{ matrix.project }}
+          AS_BRANCH: ${{ steps.extract_branch.outputs.BRANCH_NAME }}
         run: |
           source .venv/bin/activate
-          PROJECT_PATH="agents/${{ matrix.project }}"
-          BRANCH_NAME="${{ steps.extract_branch.outputs.BRANCH_NAME }}"
+          PROJECT_PATH="agents/${PROJECT}"
+          BRANCH_NAME="${AS_BRANCH}"
 
-          echo "Checking if branch $BRANCH_NAME exists for ${{ matrix.project }}..."
+          echo "Checking if branch $BRANCH_NAME exists for ${PROJECT}..."
           set +e
           python .github/scripts/poly_adk_scripts/check_branch_exists.py "$PROJECT_PATH" "$BRANCH_NAME"
           EXIT_CODE=$?
@@ -219,10 +232,10 @@ jobs:
 
           if [ $EXIT_CODE -eq 0 ]; then
             echo "Branch $BRANCH_NAME exists"
-            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "exists=true" >> "$GITHUB_OUTPUT"
           elif [ $EXIT_CODE -eq 1 ]; then
             echo "Branch $BRANCH_NAME does not exist — checking if AS main is already in sync"
-            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "exists=false" >> "$GITHUB_OUTPUT"
           else
             echo "Error checking branch existence"
             exit 1
@@ -233,9 +246,11 @@ jobs:
       - name: Check if AS main matches merged content
         id: check_main_matches
         if: steps.check_branch.outputs.exists == 'false'
+        env:
+          PROJECT: ${{ matrix.project }}
         run: |
           source .venv/bin/activate
-          PROJECT_PATH="agents/${{ matrix.project }}"
+          PROJECT_PATH="agents/${PROJECT}"
 
           set +e
           python .github/scripts/poly_adk_scripts/check_as_parent_matches_local.py "$PROJECT_PATH"
@@ -244,10 +259,10 @@ jobs:
 
           if [ $EXIT_CODE -eq 0 ]; then
             echo "AS main already matches merged(git main, git branch), nothing to do"
-            echo "matches=true" >> $GITHUB_OUTPUT
+            echo "matches=true" >> "$GITHUB_OUTPUT"
           elif [ $EXIT_CODE -eq 1 ]; then
             echo "AS main differs from merged(git main, git branch), pushing and merging"
-            echo "matches=false" >> $GITHUB_OUTPUT
+            echo "matches=false" >> "$GITHUB_OUTPUT"
           else
             echo "Error checking AS main state"
             exit 1
@@ -359,11 +374,14 @@ jobs:
 
       - name: Push final state to AS branch
         if: steps.check_branch.outputs.exists == 'true' || steps.check_main_matches.outputs.matches == 'false'
+        env:
+          PROJECT: ${{ matrix.project }}
+          AS_BRANCH: ${{ steps.extract_branch.outputs.BRANCH_NAME }}
         run: |
           source .venv/bin/activate
           python .github/scripts/poly_adk_scripts/push_to_branch.py \
-            "agents/${{ matrix.project }}" \
-            "${{ steps.extract_branch.outputs.BRANCH_NAME }}"
+            "agents/${PROJECT}" \
+            "${AS_BRANCH}"
 
       - name: Merge AS branch to main
         if: steps.check_branch.outputs.exists == 'true' || steps.check_main_matches.outputs.matches == 'false'
@@ -388,12 +406,15 @@ jobs:
 
       - name: Verify AS branch deleted after merge
         if: steps.check_branch.outputs.exists == 'true' || steps.check_main_matches.outputs.matches == 'false'
+        env:
+          PROJECT: ${{ matrix.project }}
+          AS_BRANCH: ${{ steps.extract_branch.outputs.BRANCH_NAME }}
         run: |
           source .venv/bin/activate
-          PROJECT_PATH="agents/${{ matrix.project }}"
-          BRANCH_NAME="${{ steps.extract_branch.outputs.BRANCH_NAME }}"
+          PROJECT_PATH="agents/${PROJECT}"
+          BRANCH_NAME="${AS_BRANCH}"
 
-          echo "Verifying branch $BRANCH_NAME is deleted for ${{ matrix.project }}..."
+          echo "Verifying branch $BRANCH_NAME is deleted for ${PROJECT}..."
           set +e
           python .github/scripts/poly_adk_scripts/check_branch_exists.py "$PROJECT_PATH" "$BRANCH_NAME"
           EXIT_CODE=$?
