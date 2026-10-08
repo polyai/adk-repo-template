@@ -121,18 +121,19 @@ poly pull
    - `pyproject.toml` — project name, ADK version pin, dev dependencies
    - `README.md` — repo-specific orientation
    - `.gitignore` — add any repo-specific ignores
-3. Set up a [GitHub App](https://docs.github.com/en/apps/creating-github-apps) for CI authentication:
+3. Set up a [GitHub App](https://docs.github.com/en/apps/creating-github-apps) so the Sync Projects workflow can push to `main`:
    - Create a GitHub App with **Contents: Read & write** permission
    - Install it on the repository
    - Add the following secrets:
      - `GH_APP_ID` — the GitHub App's App ID
      - `GH_APP_PRIVATE_KEY` — the GitHub App's private key (PEM format)
+   - Sync commits are authored as the App's bot user (`<app-slug>[bot]`)
 4. Set up ADK secrets (not copied from GitHub templates — must be added manually):
    - For a single region: set `POLY_ADK_KEY`
-   - For multiple regions: set `POLY_ADK_KEY_EU`, `POLY_ADK_KEY_US`, `POLY_ADK_KEY_UK`, `POLY_ADK_KEY_STUDIO`
+   - For multiple regions: set `POLY_ADK_KEY_US`, `POLY_ADK_KEY_UK`, `POLY_ADK_KEY_EUW`, `POLY_ADK_KEY_STUDIO` as needed
    - Generate keys at your region's Agent Studio settings page (e.g. `https://studio.us.poly.ai/settings/account`)
    - All changes will be attributed to the owner of the key
-5. Protect `main` with merge queue enabled
+5. Protect `main` with a ruleset (or branch protection) that requires the merge queue, and add the GitHub App to its bypass list so syncs can push directly
 6. Sync infrastructure updates from the template:
    ```bash
    .github/scripts/sync-from-template.sh            # preview

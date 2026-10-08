@@ -278,9 +278,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.POLY_CONFIG_BOT_TOKEN }}
           ref: ${{ inputs.branch || 'main' }}
           fetch-depth: 0
+          persist-credentials: false
 
       - uses: astral-sh/setup-uv@v7
 
@@ -297,19 +297,12 @@ jobs:
       - name: Install prettier
         run: npm install -g prettier@3.1.0
 
-      - name: Configure git
-        run: |
-          git config user.name "Poly Config Bot"
-          git config user.email "poly-config-bot@poly-ai.com"
-
       - name: Pull from Agent Studio
         env:
           POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
           POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
           POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
           POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
-          POLY_ADK_KEY_DEV: ${{ secrets.POLY_ADK_KEY_DEV }}
-          POLY_ADK_KEY_STAGING: ${{ secrets.POLY_ADK_KEY_STAGING }}
           POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
           # A Poly ADK version bump regenerates _gen/, which the skip-if-unchanged
           # check has nothing to compare against — always pull there.
@@ -334,6 +327,26 @@ jobs:
           if [ $PULL_EXIT_CODE -eq 1 ]; then
             exit 1
           fi
+
+      # Minted here, not at the start of the job: installation tokens last an hour, and a fresh
+      # one keeps the push credential out of the environment while the ADK tooling runs.
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
+      - name: Configure git
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        run: |
+          APP_USER_ID=$(gh api "/users/${APP_SLUG}[bot]" --jq .id)
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${APP_USER_ID}+${APP_SLUG}[bot]@users.noreply.github.com"
+          AUTH=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git config "http.https://github.com/.extraheader" "AUTHORIZATION: basic $AUTH"
 
       - name: Format and commit
         env:
