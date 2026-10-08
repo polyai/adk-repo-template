@@ -71,9 +71,11 @@ jobs:
           uv pip install -e ".[ci]"
 
       - name: Lint with ruff
+        env:
+          PROJECTS_JSON: ${{ needs.detect-changes.outputs.projects }}
         run: |
           source .venv/bin/activate
-          PROJECTS='${{ needs.detect-changes.outputs.projects }}'
+          PROJECTS="$PROJECTS_JSON"
           PATHS=()
           while IFS= read -r dir; do
             [ -z "$dir" ] && continue
@@ -84,9 +86,11 @@ jobs:
           fi
 
       - name: Format check with ruff
+        env:
+          PROJECTS_JSON: ${{ needs.detect-changes.outputs.projects }}
         run: |
           source .venv/bin/activate
-          PROJECTS='${{ needs.detect-changes.outputs.projects }}'
+          PROJECTS="$PROJECTS_JSON"
           PATHS=()
           while IFS= read -r dir; do
             [ -z "$dir" ] && continue
@@ -100,8 +104,10 @@ jobs:
         run: npm install -g prettier@3.1.0
 
       - name: Format check YAML with prettier
+        env:
+          PROJECTS_JSON: ${{ needs.detect-changes.outputs.projects }}
         run: |
-          PROJECTS='${{ needs.detect-changes.outputs.projects }}'
+          PROJECTS="$PROJECTS_JSON"
           PATHS=()
           while IFS= read -r dir; do
             [ -z "$dir" ] && continue
@@ -112,8 +118,10 @@ jobs:
           fi
 
       - name: Type check with ty
+        env:
+          PROJECTS_JSON: ${{ needs.detect-changes.outputs.projects }}
         run: |
-          PROJECTS='${{ needs.detect-changes.outputs.projects }}'
+          PROJECTS="$PROJECTS_JSON"
           PATHS=()
           while IFS= read -r dir; do
             [ -z "$dir" ] && continue
@@ -124,9 +132,11 @@ jobs:
           fi
 
       - name: Run tests
+        env:
+          PROJECTS_JSON: ${{ needs.detect-changes.outputs.projects }}
         run: |
           source .venv/bin/activate
-          .github/scripts/run-tests.sh '${{ needs.detect-changes.outputs.projects }}'
+          .github/scripts/run-tests.sh "$PROJECTS_JSON"
 
   push-to-as-branch:
     needs: detect-changes
@@ -161,13 +171,15 @@ jobs:
           POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
           POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
           POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
+          HEAD_REF: ${{ github.head_ref }}
+          PROJECT: ${{ matrix.project }}
         run: |
           source .venv/bin/activate
-          BRANCH_NAME="${{ github.head_ref }}"
+          BRANCH_NAME="${HEAD_REF}"
           git fetch origin main "$BRANCH_NAME" 2>/dev/null || true
           BRANCH_REF="origin/$BRANCH_NAME"
           python .github/scripts/poly_adk_scripts/check_poly_adk_version_protection.py \
-            '["${{ matrix.project }}"]' "$BRANCH_NAME" --branch-ref "$BRANCH_REF"
+            "$(jq -cn --arg p "$PROJECT" '[$p]')" "$BRANCH_NAME" --branch-ref "$BRANCH_REF"
 
       - name: Validate project
         env:
@@ -176,11 +188,13 @@ jobs:
           POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
           POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
           POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
+          PROJECT: ${{ matrix.project }}
+          HEAD_REF: ${{ github.head_ref }}
         run: |
           source .venv/bin/activate
           python .github/scripts/poly_adk_scripts/validate_project.py \
-            "agents/${{ matrix.project }}" \
-            "${{ github.head_ref }}"
+            "agents/${PROJECT}" \
+            "${HEAD_REF}"
 
       - name: Push to AS branch
         env:
@@ -189,12 +203,14 @@ jobs:
           POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
           POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
           POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
+          HEAD_REF: ${{ github.head_ref }}
+          PROJECT: ${{ matrix.project }}
         run: |
           source .venv/bin/activate
-          BRANCH_NAME="${{ github.head_ref }}"
-          echo "Pushing agents/${{ matrix.project }} to AS branch: $BRANCH_NAME"
+          BRANCH_NAME="${HEAD_REF}"
+          echo "Pushing agents/${PROJECT} to AS branch: $BRANCH_NAME"
           python .github/scripts/poly_adk_scripts/push_to_branch.py \
-            "agents/${{ matrix.project }}" \
+            "agents/${PROJECT}" \
             "$BRANCH_NAME"
 
   ci:
