@@ -29,7 +29,7 @@ on:
 
 # A newer dispatch for a project cancels the older run: it pulls the latest Agent Studio state anyway.
 concurrency:
-  group: ${{ github.event_name == 'repository_dispatch' && format('project-sync-{0}-{1}', github.event.client_payload.project_id || github.run_id, github.event.client_payload.branch || 'main') || format('sync-{0}', github.run_id) }}
+  group: ${{ github.event_name == 'repository_dispatch' && format('project-sync-{0}', github.event.client_payload.project_id || github.run_id) || format('sync-{0}', github.run_id) }}
   cancel-in-progress: true
 
 permissions:
@@ -42,7 +42,6 @@ jobs:
     permissions: {}
     outputs:
       from_deployment: ${{ steps.resolve.outputs.from_deployment }}
-      branch: ${{ steps.resolve.outputs.branch }}
       account_id: ${{ steps.resolve.outputs.account_id }}
       project_id: ${{ steps.resolve.outputs.project_id }}
       artifact_version: ${{ steps.resolve.outputs.artifact_version }}
@@ -60,7 +59,6 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           ACCOUNT_ID: ${{ inputs.account_id || github.event.client_payload.account_id }}
           PROJECT_ID: ${{ inputs.project_id || github.event.client_payload.project_id }}
-          BRANCH: ${{ inputs.branch || github.event.client_payload.branch || 'main' }}
           FROM_DEPLOYMENT: ${{ github.event.client_payload.deployment && 'true' || 'false' }}
           ARTIFACT_VERSION: ${{ github.event.client_payload.deployment.artifact_version }}
           DEPLOYMENT_TYPE: ${{ github.event.client_payload.deployment.deployment_type || (startsWith(github.event.action, 'project-rollback-') && 'rollback') || (startsWith(github.event.action, 'project-publish-') && 'publish') || '' }}
@@ -84,13 +82,7 @@ jobs:
             done
           fi
 
-          if [[ "$BRANCH" == refs/* ]] || ! git check-ref-format --branch "$BRANCH" > /dev/null; then
-            echo "::error::Invalid branch name in sync request"
-            exit 1
-          fi
-
           set_output from_deployment "$FROM_DEPLOYMENT"
-          set_output branch "$BRANCH"
           set_output account_id "$ACCOUNT_ID"
           set_output project_id "$PROJECT_ID"
           set_output artifact_version "$ARTIFACT_VERSION"
@@ -201,7 +193,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: refs/heads/${{ needs.resolve.outputs.branch }}
+          ref: ${{ inputs.branch || 'main' }}
 
       - name: Check if Poly ADK version changed
         id: check-version
@@ -246,11 +238,6 @@ jobs:
             dir=$(dirname "$file")
             # Extract account/project relative to agents/
             rel_path="${dir#agents/}"
-            # Project paths come from the branch being synced and become the job matrix.
-            if [[ ! "$rel_path" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
-              echo "::warning::Skipping project directory with an unexpected name"
-              continue
-            fi
 
             FILE_ACCOUNT_ID=$(read_yaml_field "$file" "account_id")
             FILE_PROJECT_ID=$(read_yaml_field "$file" "project_id")
@@ -289,21 +276,10 @@ jobs:
       matrix:
         project: ${{ fromJson(needs.find-projects.outputs.projects) }}
     steps:
-      # Tools run from the workflow's own commit. The branch being synced can be chosen by a
-      # dispatch, so nothing from it may execute while secrets are in the environment.
-      - name: Check out tooling
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-          path: tooling
-          persist-credentials: false
-
-      - name: Check out the branch to sync
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           token: ${{ secrets.POLY_CONFIG_BOT_TOKEN }}
-          ref: refs/heads/${{ needs.resolve.outputs.branch }}
-          path: repo
+          ref: ${{ inputs.branch || 'main' }}
           fetch-depth: 0
 
       - uses: astral-sh/setup-uv@v7
@@ -313,7 +289,6 @@ jobs:
           python-version: "3.14"
 
       - name: Install dependencies
-        working-directory: tooling
         run: |
           uv venv
           source .venv/bin/activate
@@ -323,13 +298,11 @@ jobs:
         run: npm install -g prettier@3.1.0
 
       - name: Configure git
-        working-directory: repo
         run: |
           git config user.name "Poly Config Bot"
           git config user.email "poly-config-bot@poly-ai.com"
 
       - name: Pull from Agent Studio
-        working-directory: repo
         env:
           POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
           POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
@@ -343,7 +316,7 @@ jobs:
           FORCE_PULL: ${{ github.event_name == 'push' && needs.find-projects.outputs.poly_adk_version_changed == 'true' }}
           PROJECT: ${{ matrix.project }}
         run: |
-          source "$GITHUB_WORKSPACE/tooling/.venv/bin/activate"
+          source .venv/bin/activate
           PROJECT_PATH="agents/${PROJECT}"
           echo "Pulling $PROJECT_PATH from Agent Studio..."
 
@@ -353,7 +326,7 @@ jobs:
           fi
 
           set +e
-          python "$GITHUB_WORKSPACE/tooling/.github/scripts/poly_adk_scripts/pull_project.py" "$PROJECT_PATH" $PULL_ARGS
+          python .github/scripts/poly_adk_scripts/pull_project.py "$PROJECT_PATH" $PULL_ARGS
           PULL_EXIT_CODE=$?
           set -e
 
@@ -363,9 +336,8 @@ jobs:
           fi
 
       - name: Format and commit
-        working-directory: repo
         env:
-          TARGET_BRANCH: ${{ needs.resolve.outputs.branch }}
+          TARGET_BRANCH: ${{ inputs.branch || 'main' }}
           INPUT_DEPLOYMENT_MESSAGE: ${{ needs.resolve.outputs.deployment_message }}
           INPUT_VERSION_HASH: ${{ needs.resolve.outputs.version_hash }}
           INPUT_USER_EMAIL: ${{ needs.resolve.outputs.user }}
@@ -375,7 +347,7 @@ jobs:
           INPUT_CLIENT_ENV: ${{ needs.resolve.outputs.client_env }}
           PROJECT: ${{ matrix.project }}
         run: |
-          source "$GITHUB_WORKSPACE/tooling/.venv/bin/activate"
+          source .venv/bin/activate
           PROJECT_PATH="agents/${PROJECT}"
           PROJECT_NAME="${PROJECT}"
 
@@ -388,7 +360,7 @@ jobs:
 
           # The repo's formatting pass — shared with the AS parent sync check in
           # deploy.yml, which treats "a sync would commit nothing" as in sync.
-          "$GITHUB_WORKSPACE/tooling/.github/scripts/format-project.sh" "$PROJECT_PATH"
+          ./.github/scripts/format-project.sh "$PROJECT_PATH"
           git add "$PROJECT_PATH"
 
           echo "=== Changes ==="

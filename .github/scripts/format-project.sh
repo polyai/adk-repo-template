@@ -16,5 +16,4 @@ command -v prettier >/dev/null || { echo "format-project: prettier not found" >&
 cd "$1"
 ruff format . || true
 ruff check . --fix || true
-# --no-config: a prettier.config.js in the formatted tree would otherwise run as code.
-prettier --no-config --write "**/*.{yaml,yml}" || true
+prettier --write "**/*.{yaml,yml}" || true
