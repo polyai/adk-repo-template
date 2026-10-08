@@ -122,3 +122,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the repo structure reference and deci
 2. Run `uv pip install -e ".[dev]"` locally to verify
 3. Open a PR — on merge, the sync workflow automatically re-syncs all projects
 4. Check the [ADK releases](https://github.com/polyai/adk/releases) for breaking changes
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE).
