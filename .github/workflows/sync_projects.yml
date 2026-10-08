@@ -5,7 +5,8 @@ on:
     # Run every day at 3 am UTC
     - cron: "0 3 * * *"
   repository_dispatch:
-    types: [project-sync]
+    # The sandbox types are for projects still on legacy deployments, where merges to main publish to sandbox.
+    types: [project-publish-live, project-publish-sandbox, project-rollback-live, project-rollback-sandbox]
   workflow_dispatch:
     inputs:
       account_id:
@@ -20,44 +21,81 @@ on:
         description: "Branch to sync"
         required: false
         default: "main"
-      correlation_id:
-        description: "Correlation ID for traceability of webhook-triggered syncs"
-        required: false
-      artifact_version:
-        description: "Artifact version from deployment"
-        required: false
-      deployment_type:
-        description: "Deployment type (publish, rollback)"
-        required: false
-      client_env:
-        description: "Environment the deployment landed on (sandbox, live)"
-        required: false
-      deployment_message:
-        description: "Deployment message"
-        required: false
-      version_hash:
-        description: "Version hash"
-        required: false
-      user:
-        description: "User triggering the sync"
-        required: false
   push:
     branches:
       - main
     paths:
       - "pyproject.toml"
 
+# A newer dispatch for a project cancels the older run: it pulls the latest Agent Studio state anyway.
 concurrency:
-  group: ${{ github.event_name == 'workflow_dispatch' && inputs.correlation_id != '' && format('webhook-sync-{0}', inputs.project_id) || format('sync-{0}', github.run_id) }}
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'repository_dispatch' && format('project-sync-{0}', github.event.client_payload.project_id || github.run_id) || format('sync-{0}', github.run_id) }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
 
 jobs:
+  resolve:
+    name: Resolve sync request
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      from_deployment: ${{ steps.resolve.outputs.from_deployment }}
+      account_id: ${{ steps.resolve.outputs.account_id }}
+      project_id: ${{ steps.resolve.outputs.project_id }}
+      artifact_version: ${{ steps.resolve.outputs.artifact_version }}
+      deployment_type: ${{ steps.resolve.outputs.deployment_type }}
+      client_env: ${{ steps.resolve.outputs.client_env }}
+      deployment_message: ${{ steps.resolve.outputs.deployment_message }}
+      version_hash: ${{ steps.resolve.outputs.version_hash }}
+      user: ${{ steps.resolve.outputs.user }}
+    steps:
+      - name: Read workflow inputs or dispatch payload
+        id: resolve
+        env:
+          # Dispatches nest the Agent Studio deployment under client_payload.deployment
+          # so new deployment fields can't push client_payload past GitHub's 10 top-level properties.
+          EVENT_NAME: ${{ github.event_name }}
+          ACCOUNT_ID: ${{ inputs.account_id || github.event.client_payload.account_id }}
+          PROJECT_ID: ${{ inputs.project_id || github.event.client_payload.project_id }}
+          FROM_DEPLOYMENT: ${{ github.event.client_payload.deployment && 'true' || 'false' }}
+          ARTIFACT_VERSION: ${{ github.event.client_payload.deployment.artifact_version }}
+          DEPLOYMENT_TYPE: ${{ github.event.client_payload.deployment.deployment_type || (startsWith(github.event.action, 'project-rollback-') && 'rollback') || (startsWith(github.event.action, 'project-publish-') && 'publish') || '' }}
+          CLIENT_ENV: ${{ github.event.client_payload.deployment.client_env }}
+          DEPLOYMENT_MESSAGE: ${{ github.event.client_payload.deployment.deployment_message }}
+          VERSION_HASH: ${{ github.event.client_payload.deployment.version_hash }}
+          USER_EMAIL: ${{ github.event.client_payload.deployment.user }}
+        run: |
+          set_output() {
+            local delim="EOF_$(openssl rand -hex 8)"
+            { echo "$1<<$delim"; printf '%s\n' "$2"; echo "$delim"; } >> "$GITHUB_OUTPUT"
+          }
+
+          # find-projects reads an empty or "*" ID as "every project", which only manual runs may ask for.
+          if [ "$EVENT_NAME" = repository_dispatch ]; then
+            for id in "$ACCOUNT_ID" "$PROJECT_ID"; do
+              if [ -z "$id" ] || [ "$id" = "*" ]; then
+                echo "::error::Dispatches must set client_payload.account_id and client_payload.project_id to a single project"
+                exit 1
+              fi
+            done
+          fi
+
+          set_output from_deployment "$FROM_DEPLOYMENT"
+          set_output account_id "$ACCOUNT_ID"
+          set_output project_id "$PROJECT_ID"
+          set_output artifact_version "$ARTIFACT_VERSION"
+          set_output deployment_type "$DEPLOYMENT_TYPE"
+          set_output client_env "$CLIENT_ENV"
+          set_output deployment_message "$DEPLOYMENT_MESSAGE"
+          set_output version_hash "$VERSION_HASH"
+          set_output user "$USER_EMAIL"
+
   wait-for-merge-queue:
     name: Wait for merge queue
-    if: github.event_name == 'workflow_dispatch' && inputs.correlation_id != ''
+    needs: [resolve]
+    if: needs.resolve.outputs.from_deployment == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -66,7 +104,7 @@ jobs:
       - name: Wait if deployment matches merge queue PR
         env:
           GH_TOKEN: ${{ github.token }}
-          DEPLOYMENT_MESSAGE: ${{ inputs.deployment_message }}
+          DEPLOYMENT_MESSAGE: ${{ needs.resolve.outputs.deployment_message }}
         run: |
           if [ -z "$DEPLOYMENT_MESSAGE" ]; then
             echo "No deployment message, proceeding with sync"
@@ -144,8 +182,8 @@ jobs:
           echo "::warning::Merge queue did not clear within ${TIMEOUT}s, proceeding with sync anyway"
 
   find-projects:
-    needs: [wait-for-merge-queue]
-    if: "!cancelled()"
+    needs: [resolve, wait-for-merge-queue]
+    if: "!cancelled() && needs.resolve.result == 'success'"
     runs-on: ubuntu-latest
     outputs:
       projects: ${{ steps.find.outputs.projects }}
@@ -174,8 +212,9 @@ jobs:
       - name: Find projects
         id: find
         env:
-          INPUT_ACCOUNT_ID: ${{ inputs.account_id }}
-          INPUT_PROJECT_ID: ${{ inputs.project_id }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_ACCOUNT_ID: ${{ needs.resolve.outputs.account_id }}
+          INPUT_PROJECT_ID: ${{ needs.resolve.outputs.project_id }}
         run: |
           ACCOUNT_FILTER="$INPUT_ACCOUNT_ID"
           PROJECT_FILTER="$INPUT_PROJECT_ID"
@@ -214,6 +253,8 @@ jobs:
             echo "::error::No projects found"
             echo "has_projects=false" >> $GITHUB_OUTPUT
             echo "projects=[]" >> $GITHUB_OUTPUT
+            # A dispatch names one project, so finding none means the sync didn't happen.
+            [ "$EVENT_NAME" = repository_dispatch ] && exit 1
             exit 0
           fi
 
@@ -225,7 +266,7 @@ jobs:
   sync-projects:
     name: Sync ${{ matrix.project }}
     runs-on: ubuntu-latest
-    needs: find-projects
+    needs: [resolve, find-projects]
     if: |
       !cancelled() && needs.find-projects.result == 'success' &&
       needs.find-projects.outputs.has_projects == 'true' &&
@@ -273,9 +314,10 @@ jobs:
           # A Poly ADK version bump regenerates _gen/, which the skip-if-unchanged
           # check has nothing to compare against — always pull there.
           FORCE_PULL: ${{ github.event_name == 'push' && needs.find-projects.outputs.poly_adk_version_changed == 'true' }}
+          PROJECT: ${{ matrix.project }}
         run: |
           source .venv/bin/activate
-          PROJECT_PATH="agents/${{ matrix.project }}"
+          PROJECT_PATH="agents/${PROJECT}"
           echo "Pulling $PROJECT_PATH from Agent Studio..."
 
           PULL_ARGS=""
@@ -296,17 +338,18 @@ jobs:
       - name: Format and commit
         env:
           TARGET_BRANCH: ${{ inputs.branch || 'main' }}
-          INPUT_DEPLOYMENT_MESSAGE: ${{ inputs.deployment_message }}
-          INPUT_VERSION_HASH: ${{ inputs.version_hash }}
-          INPUT_USER_EMAIL: ${{ inputs.user }}
-          INPUT_CORRELATION_ID: ${{ inputs.correlation_id }}
-          INPUT_ARTIFACT_VERSION: ${{ inputs.artifact_version }}
-          INPUT_DEPLOYMENT_TYPE: ${{ inputs.deployment_type }}
-          INPUT_CLIENT_ENV: ${{ inputs.client_env }}
+          INPUT_DEPLOYMENT_MESSAGE: ${{ needs.resolve.outputs.deployment_message }}
+          INPUT_VERSION_HASH: ${{ needs.resolve.outputs.version_hash }}
+          INPUT_USER_EMAIL: ${{ needs.resolve.outputs.user }}
+          INPUT_FROM_DEPLOYMENT: ${{ needs.resolve.outputs.from_deployment }}
+          INPUT_ARTIFACT_VERSION: ${{ needs.resolve.outputs.artifact_version }}
+          INPUT_DEPLOYMENT_TYPE: ${{ needs.resolve.outputs.deployment_type }}
+          INPUT_CLIENT_ENV: ${{ needs.resolve.outputs.client_env }}
+          PROJECT: ${{ matrix.project }}
         run: |
           source .venv/bin/activate
-          PROJECT_PATH="agents/${{ matrix.project }}"
-          PROJECT_NAME="${{ matrix.project }}"
+          PROJECT_PATH="agents/${PROJECT}"
+          PROJECT_NAME="${PROJECT}"
 
           if [ -z "$(git status --porcelain "$PROJECT_PATH")" ]; then
             echo "No changes detected for $PROJECT_NAME"
@@ -344,14 +387,14 @@ jobs:
             COMMIT_TYPE="chore"
           fi
           COMMIT_MSG="$COMMIT_TYPE($PROJECT_NAME): $SUBJECT_BODY"
-          if [ -n "$INPUT_CORRELATION_ID" ]; then
-            COMMIT_MSG="$COMMIT_MSG (webhook)"
-            COMMIT_MSG=$(printf '%s\n\nCorrelation ID: %s' "$COMMIT_MSG" "$INPUT_CORRELATION_ID")
-            [ -n "$INPUT_ARTIFACT_VERSION" ] && COMMIT_MSG=$(printf '%s\nArtifact version: %s' "$COMMIT_MSG" "$INPUT_ARTIFACT_VERSION")
-            [ -n "$INPUT_DEPLOYMENT_TYPE" ] && COMMIT_MSG=$(printf '%s\nDeployment type: %s' "$COMMIT_MSG" "$INPUT_DEPLOYMENT_TYPE")
-            [ -n "$INPUT_CLIENT_ENV" ] && COMMIT_MSG=$(printf '%s\nEnvironment: %s' "$COMMIT_MSG" "$INPUT_CLIENT_ENV")
-            [ -n "$INPUT_USER_EMAIL" ] && COMMIT_MSG=$(printf '%s\nUser: %s' "$COMMIT_MSG" "$INPUT_USER_EMAIL")
-            [ -n "$INPUT_VERSION_HASH" ] && COMMIT_MSG=$(printf '%s\nVersion hash: %s' "$COMMIT_MSG" "$INPUT_VERSION_HASH")
+          if [ "$INPUT_FROM_DEPLOYMENT" = true ]; then
+            DETAILS=""
+            [ -n "$INPUT_ARTIFACT_VERSION" ] && DETAILS=$(printf '%s\nArtifact version: %s' "$DETAILS" "$INPUT_ARTIFACT_VERSION")
+            [ -n "$INPUT_DEPLOYMENT_TYPE" ] && DETAILS=$(printf '%s\nDeployment type: %s' "$DETAILS" "$INPUT_DEPLOYMENT_TYPE")
+            [ -n "$INPUT_CLIENT_ENV" ] && DETAILS=$(printf '%s\nEnvironment: %s' "$DETAILS" "$INPUT_CLIENT_ENV")
+            [ -n "$INPUT_USER_EMAIL" ] && DETAILS=$(printf '%s\nUser: %s' "$DETAILS" "$INPUT_USER_EMAIL")
+            [ -n "$INPUT_VERSION_HASH" ] && DETAILS=$(printf '%s\nVersion hash: %s' "$DETAILS" "$INPUT_VERSION_HASH")
+            [ -n "$DETAILS" ] && COMMIT_MSG=$(printf '%s\n%s' "$COMMIT_MSG" "$DETAILS")
           fi
 
           git commit -m "$COMMIT_MSG"

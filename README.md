@@ -56,9 +56,35 @@ poly push
 
 ### Syncing from Agent Studio
 
-To pull the latest state from Agent Studio into the repo, run the **Sync Projects** workflow manually from the Actions tab.
+The **Sync Projects** workflow pulls the latest state from Agent Studio into the repo. It runs:
 
-> **Warning:** If changes are made in Agent Studio and not synced to the repo, the next PR merge will overwrite those changes. Ensure a sync is run after any branch is merged in the Agent Studio UI.
+- when Agent Studio sends a dispatch after a publish or rollback (see below)
+- nightly at 03:00 UTC
+- when the ADK version in `pyproject.toml` changes
+- manually, from the Actions tab
+
+To have Agent Studio dispatch a sync, add this webhook to the project's `agent_settings/experimental_config.json`, under both `on_draft_published` (merges to main) and `on_deployment.live` (rollbacks):
+
+```json
+{
+  "url": "https://api.github.com/repos/<owner>/<repo>/dispatches",
+  "auth": { "header": "Authorization", "secret_name": "github-sync-token" },
+  "payload_template": {
+    "event_type": "project-{{deployment_type}}-{{client_env}}",
+    "client_payload": {
+      "account_id": "{{account_id}}",
+      "project_id": "{{project_id}}",
+      "deployment": "{{payload}}"
+    }
+  }
+}
+```
+
+The `github-sync-token` secret in Agent Studio holds `Bearer <token>`, where the token is a fine-grained personal access token with **Contents: Read and write** on this repository only. Keep the deployment under `deployment`: GitHub rejects a `client_payload` with more than 10 top-level properties.
+
+The workflow runs on `project-publish-live` and `project-rollback-live`. GitHub accepts a dispatch with any other event type, such as a deployment to `pre-release`, but it starts no run and nothing reports an error. If a second dispatch for the same project arrives while a sync is still running, the second cancels the first and syncs both changes.
+
+> **Warning:** If changes are made in Agent Studio and not synced to the repo, the next PR merge will overwrite those changes. Without the webhook, run a sync after any branch is merged in the Agent Studio UI.
 
 ### Updating the ADK version
 
