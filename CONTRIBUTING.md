@@ -18,7 +18,7 @@
   scripts/
     detect-changed-dirs.sh          # Find which projects changed in a commit range
     run-tests.sh                    # Run pytest for changed projects
-    get-user-email.sh               # Resolve GH username → email via git log
+    format-project.sh               # Formatting applied after every pull from AS
     sync-from-template.sh           # Pull infra updates from template repo
     poly_adk_scripts/               # ADK operations (push, pull, merge, validate)
 pyproject.toml                      # Python deps, ruff/ty/pytest config
