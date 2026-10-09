@@ -176,7 +176,7 @@ Merge it through a PR. Once Deploy publishes it, each publish or rollback in Age
 
 ## Commands
 
-Run `poly` commands from the project directory, `agents/<account>/<project>/`.
+From the repo root:
 
 ```bash
 # Run tests for a project
@@ -186,6 +186,13 @@ pytest agents/<account>/<project>/
 ruff check agents/<account>/<project>/
 ruff format --check agents/<account>/<project>/
 
+# Sync infrastructure from the template (downstream repos only)
+.github/scripts/sync-from-template.sh --apply
+```
+
+From the project directory, `agents/<account>/<project>/`:
+
+```bash
 # Push to an Agent Studio branch (CI does this automatically)
 poly branch create $(git branch --show-current)
 poly push
@@ -193,9 +200,14 @@ poly push
 # Pull from Agent Studio
 poly pull
 
-# Sync infrastructure from the template (downstream repos only)
-.github/scripts/sync-from-template.sh --apply
+# Chat with the agent on your Agent Studio branch, pushing local changes first
+poly chat --push
+
+# Call the agent with your microphone and speaker (needs a non-main branch)
+poly call --push
 ```
+
+`poly chat` talks to the last pushed state of your Agent Studio branch, and `--environment` picks another environment instead. `poly call` only reaches a branch's draft build, so run `poly branch create` first; it switches you to the new branch. Its audio dependencies come with the `dev` extras. See the ADK docs for [`poly chat`](https://polyai.github.io/adk/reference/cli/chat/), [`poly call`](https://polyai.github.io/adk/reference/cli/call/), [testing](https://polyai.github.io/adk/development/testing/) and the [full CLI reference](https://polyai.github.io/adk/reference/cli/).
 
 ## Setting up a new repo from this template
 
