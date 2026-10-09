@@ -31,11 +31,11 @@ poly setup
 
 The project you work on is at `agents/<account>/<project>/`. Run `poly` commands from that directory.
 
-The git hooks format each project you commit to with `.github/scripts/format-project.sh`, the same formatting a sync from Agent Studio applies, then run the ruff, ty and JSON checks CI runs. If the hook reformats files, the commit stops: add the changes and commit again. Commit with the virtual environment active, because the hooks use its `ruff`.
+The git hooks format each project you commit to with `.github/scripts/format-project.sh`, the same formatting a sync from Agent Studio applies, then run the ruff and ty checks CI runs, plus a JSON syntax check. If the hook reformats files, the commit stops: to fix this, add the changes and commit. Ensure when you commit you use the virtual environment, as the hooks use its `ruff`.
 
 In VS Code, select the `.venv` interpreter: `Cmd+Shift+P` > **"Python: Select Interpreter"** > choose `.venv/bin/python`.
 
-> **API keys in environment variables:** the ADK also reads `POLY_ADK_KEY_<REGION>` (`POLY_ADK_KEY_US`, `_UK`, `_EUW`, `_STUDIO`) and then `POLY_ADK_KEY`, before the credentials file. CI uses these. Locally you only need them to override the saved key.
+> **API keys in environment variables:** CI signs in with `POLY_ADK_KEY_<REGION>` (`POLY_ADK_KEY_US`, `_UK`, `_EUW`, `_STUDIO`) or `POLY_ADK_KEY`. The ADK uses these ahead of the key `poly setup` saved, so you only need to set them locally to use a different key.
 
 ## Adding a project
 
@@ -45,10 +45,12 @@ Only for a project that isn't in `agents/` yet. From the repo root:
 poly init --base-path agents --region <region> --account_id <account> --project_id <project>
 ```
 
-This pulls the project into `agents/<account>/<project>/`. A fresh pull isn't formatted the way CI expects, so format it before committing:
+This pulls the project into `agents/<account>/<project>/`. A fresh pull isn't formatted the way CI expects, so format it before committing. The hooks only see files git knows about, so stage the project first:
 
 ```bash
+git add agents/<account>/<project>
 pre-commit run --all-files
+git add agents/<account>/<project>
 ```
 
 Then commit it on a branch and open a PR. CI finds projects by their `project.yaml`, so nothing else needs registering. Once it's merged, [set up the sync webhook](#agent-studio-webhook) for the project.

@@ -9,6 +9,8 @@ repos:
         language: node
         additional_dependencies: [prettier@3.1.0]
         files: ^agents/
+        # It formats whole projects, so parallel batches would rewrite the same files at once.
+        require_serial: true
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.14.2
     hooks:
