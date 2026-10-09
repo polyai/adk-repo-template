@@ -35,8 +35,6 @@ The git hooks format each project you commit to with `.github/scripts/format-pro
 
 In VS Code, select the `.venv` interpreter: `Cmd+Shift+P` > **"Python: Select Interpreter"** > choose `.venv/bin/python`.
 
-> **API keys in environment variables:** CI signs in with `POLY_ADK_KEY_<REGION>` (`POLY_ADK_KEY_US`, `_UK`, `_EUW`, `_STUDIO`) or `POLY_ADK_KEY`. The ADK uses these ahead of the key `poly setup` saved, so you only need to set them locally to use a different key.
-
 ## Adding a project
 
 Only for a project that isn't in `agents/` yet. From the repo root:
@@ -253,6 +251,8 @@ Add repo secrets with Agent Studio API keys for CI. Generate keys at your region
 
 - For a single region: `POLY_ADK_KEY`.
 - For several regions: `POLY_ADK_KEY_US`, `POLY_ADK_KEY_UK`, `POLY_ADK_KEY_EUW` and `POLY_ADK_KEY_STUDIO`, as needed.
+
+CI passes these to the ADK as environment variables. For a project, the ADK uses its region's key if it's set, and `POLY_ADK_KEY` otherwise.
 
 ### 4. Protect `main`
 
