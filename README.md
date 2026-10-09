@@ -20,7 +20,7 @@ source .venv/bin/activate
 # Install the ADK and dev tools
 uv pip install -e ".[dev]"
 
-# Install the git hooks (ruff, prettier, ty and a JSON check, matching CI)
+# Install the git hooks
 pre-commit install
 
 # Sign in to Agent Studio
@@ -30,6 +30,8 @@ poly setup
 `poly setup` asks for your region, signs you in through the browser and saves an API key to `~/.poly/credentials.json`. It also offers shell completion and AI agent skills for your coding agent. When it asks **Set up a project?**, choose **Skip for now**: the projects you work on are already in the repo. To sign in without the other steps, run `poly login --region <region>` instead.
 
 The project you work on is at `agents/<account>/<project>/`. Run `poly` commands from that directory.
+
+The git hooks format each project you commit to with `.github/scripts/format-project.sh`, the same formatting a sync from Agent Studio applies, then run the ruff, ty and JSON checks CI runs. If the hook reformats files, the commit stops: add the changes and commit again. Commit with the virtual environment active, because the hooks use its `ruff`.
 
 In VS Code, select the `.venv` interpreter: `Cmd+Shift+P` > **"Python: Select Interpreter"** > choose `.venv/bin/python`.
 
@@ -43,7 +45,13 @@ Only for a project that isn't in `agents/` yet. From the repo root:
 poly init --base-path agents --region <region> --account_id <account> --project_id <project>
 ```
 
-This pulls the project into `agents/<account>/<project>/`. Commit it on a branch and open a PR. CI finds projects by their `project.yaml`, so nothing else needs registering. Once it's merged, [set up the sync webhook](#agent-studio-webhook) for the project.
+This pulls the project into `agents/<account>/<project>/`. A fresh pull isn't formatted the way CI expects, so format it before committing:
+
+```bash
+pre-commit run --all-files
+```
+
+Then commit it on a branch and open a PR. CI finds projects by their `project.yaml`, so nothing else needs registering. Once it's merged, [set up the sync webhook](#agent-studio-webhook) for the project.
 
 ## Repository structure
 
@@ -86,39 +94,30 @@ The **Sync Projects** workflow pulls the latest state from Agent Studio into the
 - when the ADK version in `pyproject.toml` changes
 - manually, from the Actions tab
 
-> **Warning:** If changes are made in Agent Studio and not synced to the repo, the next PR merge overwrites them. Without the webhook, run a sync after any branch is merged in the Agent Studio UI.
+> **Note:** A merge can't overwrite changes made in Agent Studio that haven't been synced yet. In the merge queue, Deploy checks that Agent Studio main matches git `main`, and fails the PR with `AS branch main is not in sync with git main` if a sync would change anything. Run Sync Projects for the project, then re-queue the PR. The webhook keeps the repo in sync, so this rarely happens.
 
 ### Agent Studio webhook
 
-Each project needs its own webhook so that publishing in Agent Studio starts a sync.
+Each project needs a webhook so that publishing in Agent Studio starts a sync.
 
-**1. Create a GitHub token.** Agent Studio uses it to send the dispatch. Create a fine-grained personal access token at [github.com/settings/personal-access-tokens/new](https://github.com/settings/personal-access-tokens/new):
+**1. Create a GitHub token.** Create a [fine-grained personal access token](https://github.com/settings/personal-access-tokens/new) with:
 
-- **Resource owner:** the organisation that owns this repo, not your personal account. A token owned by your account can't see the repo.
-- **Repository access:** Only select repositories, then this repo.
-- **Repository permissions:** **Contents: Read and write**. The list is alphabetical, so Contents is below Actions, Administration and Checks. Leave everything else at No access.
-- **Expiration:** syncs stop without an error when the token expires, so note the date.
+- **Resource owner:** the organisation that owns this repo, not your personal account
+- **Repository access:** only this repo
+- **Repository permissions:** Contents: Read and write
 
-If your organisation requires approval for fine-grained tokens, the token gets a 404 from GitHub until an admin approves it.
+Syncs stop without an error when the token expires, so note the expiry date.
 
-Check that the token can see the repo. This should print the repo name:
+**2. Store it in Agent Studio.** In the project's workspace, create a secret:
 
-```bash
-GH_TOKEN=<token> gh api repos/<owner>/<repo> --jq .full_name
-```
+| Field          | Value                                    |
+| -------------- | ---------------------------------------- |
+| Name           | `github-sync-token`                      |
+| Type           | Single value                             |
+| Value          | `Bearer <token>` (with the `Bearer ` prefix) |
+| Project access | the project                              |
 
-**2. Store it as an Agent Studio secret.** Create a secret in the workspace that owns the project, in the project's region:
-
-| Field          | Value                                                         |
-| -------------- | ------------------------------------------------------------- |
-| Name           | `github-sync-token`                                           |
-| Type           | Single value                                                  |
-| Value          | `Bearer <token>`, with `Bearer ` included and no quotes       |
-| Project access | the project                                                   |
-
-Agent Studio sends the value as the `Authorization` header exactly as stored.
-
-**3. Add the webhook to the project.** In `agents/<account>/<project>/agent_settings/experimental_config.json`, add a top-level `webhooks` key. `on_draft_published` covers merges to main and `on_deployment.live` covers rollbacks; each takes a list:
+**3. Add the webhook.** Add a `webhooks` key to `agents/<account>/<project>/agent_settings/experimental_config.json`. `on_draft_published` fires on merges to main and `on_deployment.live` on rollbacks:
 
 ```json
 {
@@ -157,32 +156,16 @@ Agent Studio sends the value as the `Authorization` header exactly as stored.
 }
 ```
 
-If the file already has other keys, add `webhooks` alongside them. Keep the deployment under `deployment`: GitHub rejects a `client_payload` with more than 10 top-level properties.
-
-Merge the change through a PR. The webhook takes effect when Deploy publishes it.
-
-**4. Check it works.** Publish a change in Agent Studio. A Sync Projects run with the `repository_dispatch` event should start within a few seconds, and push an `Update from AS` commit to `main`.
-
-The workflow runs on `project-publish-live` and `project-rollback-live`. GitHub accepts a dispatch with any other event type, such as a deployment to `pre-release`, but starts no run and reports no error. If a second dispatch for the same project arrives while a sync is still running, the second cancels the first and syncs both changes.
+Merge it through a PR. Once Deploy publishes it, each publish or rollback in Agent Studio starts a Sync Projects run, which pushes an `Update from AS` commit to `main`. If a second dispatch for the same project arrives while a sync is running, it cancels the first and syncs both changes.
 
 #### Troubleshooting
 
-To test the token and the workflow without Agent Studio, send a dispatch yourself. A `204` response means GitHub accepted it, and a sync run starts:
-
-```bash
-curl -i -X POST https://api.github.com/repos/<owner>/<repo>/dispatches \
-  -H "Authorization: Bearer <token>" \
-  -H "Accept: application/vnd.github+json" \
-  -d '{"event_type":"project-publish-live","client_payload":{"account_id":"<account>","project_id":"<project>","deployment":{}}}'
-```
-
-| Symptom                                                  | Cause                                                                                                                                                                                                               |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Publishing starts no run; the curl returns `404`         | The token can't see the repo: wrong resource owner, the repo isn't selected, or the token is waiting for organisation approval.                                                                                    |
-| Publishing starts no run; the curl returns `204`         | The token is fine, so Agent Studio isn't sending it. Check the secret is named `github-sync-token`, is in the project's workspace and region, gives the project access, and holds `Bearer <token>`. Without the secret, Agent Studio sends the dispatch with no `Authorization` header. |
-| The curl returns `401`                                   | The token is wrong or has expired.                                                                                                                                                                                  |
-| The run fails at the GitHub App token step with `Invalid keyData` | `GH_APP_PRIVATE_KEY` isn't a valid key. Set it from the `.pem` file (see [GitHub App](#2-github-app)).                                                                                                   |
-| The run fails at find-projects with `No projects found`  | The project isn't on `main` yet, or `account_id`/`project_id` in the dispatch don't match its `project.yaml`.                                                                                                       |
+| Symptom | Cause |
+| ------- | ----- |
+| Publishing starts no run | GitHub rejected the dispatch, usually because the token can't see the repo (its resource owner isn't the organisation, or the repo isn't selected) or the secret is missing, misnamed, or lacks the `Bearer ` prefix or project access. |
+| A PR fails in the merge queue with `AS branch main is not in sync with git main` | Agent Studio has changes the repo doesn't. Run Sync Projects for the project, then re-queue. To merge anyway and overwrite the Agent Studio changes, add the `skip-as-sync-check` label and re-queue. |
+| Sync Projects fails at the GitHub App token step with `Invalid keyData` | `GH_APP_PRIVATE_KEY` isn't a valid key. Set it from the `.pem` file (see [GitHub App](#2-github-app)). |
+| Sync Projects fails at find-projects with `No projects found` | The project isn't on `main` yet, or the dispatch's `account_id`/`project_id` don't match its `project.yaml`. |
 
 ## Updating the ADK version
 
