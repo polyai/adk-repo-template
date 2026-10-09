@@ -76,12 +76,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full structure and for writing un
 
 ### Pushing to Agent Studio locally
 
-CI does this on every PR push. To try a change in Agent Studio before pushing to GitHub, do the same from the project directory:
-
-```bash
-poly branch create $(git branch --show-current)
-poly push
-```
+CI does this on every PR push. To try a change in Agent Studio before pushing to GitHub, run `poly push` from the project directory, on the Agent Studio branch that matches your git branch (see [Commands](#commands)).
 
 > **Note:** `poly push` sends your local project files to the Agent Studio branch. It is not a git push.
 
@@ -190,11 +185,20 @@ ruff format --check agents/<account>/<project>/
 .github/scripts/sync-from-template.sh --apply
 ```
 
-From the project directory, `agents/<account>/<project>/`:
+Run these from the project directory, `agents/<account>/<project>/`, on the Agent Studio branch with the same name as your git branch. The ADK tracks its Agent Studio branch separately from git, so switching git branches doesn't move it. Check with `poly branch current`, and set it before you start editing:
 
 ```bash
-# Push to an Agent Studio branch (CI does this automatically)
+# A new git branch: create the Agent Studio branch (from main). Your files are kept.
 poly branch create $(git branch --show-current)
+
+# A branch CI has already pushed: switch to it. This loads the branch's state into the project files.
+poly branch switch $(git branch --show-current)
+```
+
+Then:
+
+```bash
+# Push to the Agent Studio branch (CI does this on every PR push)
 poly push
 
 # Pull from Agent Studio
@@ -207,7 +211,7 @@ poly chat --push
 poly call --push
 ```
 
-`poly chat` talks to the last pushed state of your Agent Studio branch, and `--environment` picks another environment instead. `poly call` only reaches a branch's draft build, so run `poly branch create` first; it switches you to the new branch. Its audio dependencies come with the `dev` extras. See the ADK docs for [`poly chat`](https://polyai.github.io/adk/reference/cli/chat/), [`poly call`](https://polyai.github.io/adk/reference/cli/call/), [testing](https://polyai.github.io/adk/development/testing/) and the [full CLI reference](https://polyai.github.io/adk/reference/cli/).
+`poly chat` talks to the last pushed state of your Agent Studio branch, and `--environment` picks another environment instead. `poly call` only reaches a branch's draft build, not main. Its audio dependencies come with the `dev` extras. See the ADK docs for [`poly chat`](https://polyai.github.io/adk/reference/cli/chat/), [`poly call`](https://polyai.github.io/adk/reference/cli/call/), [testing](https://polyai.github.io/adk/development/testing/) and the [full CLI reference](https://polyai.github.io/adk/reference/cli/).
 
 ## Setting up a new repo from this template
 
