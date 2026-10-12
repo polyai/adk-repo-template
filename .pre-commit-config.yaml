@@ -1,0 +1,33 @@
+repos:
+  - repo: local
+    hooks:
+      # Formatting is format-project.sh and nothing else: the merge queue's sync
+      # check runs it on every Agent Studio pull, so any other formatter reads as drift.
+      - id: format-project
+        name: format projects (format-project.sh)
+        entry: .github/scripts/pre-commit-format.sh
+        language: node
+        additional_dependencies: [prettier@3.1.0]
+        files: ^agents/
+        # It formats whole projects, so parallel batches would rewrite the same files at once.
+        require_serial: true
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.2
+    hooks:
+      # format-project.sh tolerates lint errors ruff can't fix; CI doesn't.
+      - id: ruff-check
+        files: ^agents/
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-json
+        files: ^agents/
+  - repo: local
+    hooks:
+      - id: ty-check
+        name: ty check
+        entry: uvx ty check
+        language: system
+        types: [python]
+        files: ^agents/
+        exclude: (^|/)(_gen/|imports\.py$)
