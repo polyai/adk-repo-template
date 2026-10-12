@@ -1,0 +1,72 @@
+name: Bug Report
+description: A workflow, script or setup step in the template isn't working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! For problems with the `poly` CLI itself, open an issue on the [ADK repo](https://github.com/polyai/adk/issues) instead.
+
+  - type: input
+    id: adk-version
+    attributes:
+      label: ADK version
+      description: The `polyai-adk` version pinned in your `pyproject.toml`
+      placeholder: "e.g. 0.64.2"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where did it go wrong?
+      options:
+        - CI (pull request checks or the Agent Studio branch push)
+        - Deploy (merge queue)
+        - Sync Projects
+        - Agent Studio branch cleanup
+        - Pre-commit hooks
+        - Setting up a new repo (SETUP.md)
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: run
+    attributes:
+      label: Workflow run
+      description: Link to the failed Actions run, if there is one
+      placeholder: "https://github.com/<owner>/<repo>/actions/runs/..."
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the unexpected behavior.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or error output
+      description: Paste the failing step's output. Remove any tokens, keys or project IDs first. This will be auto-formatted as code.
+      render: shell
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps to trigger the bug.
+      value: |
+        1.
+        2.
+        3.

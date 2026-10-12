@@ -7,11 +7,12 @@
 #   .github/scripts/sync-from-template.sh --ref v1.2  # sync from a specific ref
 #
 # Synced paths (infrastructure, meant to be identical across repos):
-#   .github/
+#   .github/workflows/, .github/scripts/, .github/assets/
 #   .pre-commit-config.yaml
 #
 # NOT synced (repo-specific):
 #   pyproject.toml, README.md, .gitignore
+#   CODEOWNERS, .github/ISSUE_TEMPLATE/ (the template repo's own)
 #   agents/ (project content)
 
 set -e
@@ -22,7 +23,9 @@ TEMPLATE_REF="main"
 APPLY=false
 
 SYNC_PATHS=(
-  ".github"
+  ".github/workflows"
+  ".github/scripts"
+  ".github/assets"
   ".pre-commit-config.yaml"
 )
 

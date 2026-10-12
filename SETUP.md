@@ -10,6 +10,11 @@ Create a new GitHub repo from this template, then set up the files each repo own
 - `README.md`: repo-specific orientation
 - `.gitignore`: any repo-specific ignores
 
+These come from the template but belong to the template repo itself. Replace them with your own or delete them:
+
+- `CODEOWNERS`: names the template's maintainers
+- `.github/ISSUE_TEMPLATE/`: issue forms for reporting problems with the template
+
 ## 2. GitHub App
 
 Sync Projects pushes to `main` with a GitHub App token, so its commits can bypass the branch rules.
