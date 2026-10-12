@@ -30,15 +30,21 @@ New to PolyAI? Sign up at [studio.poly.ai](https://studio.poly.ai) and start fre
 ## How it works
 
 ```mermaid
-flowchart LR
-    subgraph GitHub
-        pr[Pull request] --> queue[Merge queue] --> main[main]
+sequenceDiagram
+    box GitHub
+        participant PR as Pull request
+        participant Main as main
     end
-    subgraph Studio[Agent Studio]
-        branch[Branch named after the PR] -- "Deploy merges and publishes" --> asmain[main]
+    box Agent Studio
+        participant Branch as PR branch
+        participant ASMain as main
     end
-    pr -- "CI pushes" --> branch
-    asmain -- "Sync Projects, on publish or rollback" --> main
+    PR->>Branch: CI pushes on every PR push
+    Note over PR,ASMain: Merge queue
+    Branch->>ASMain: Deploy merges the branch and publishes
+    PR->>Main: The PR is squashed onto main
+    Note over Main,ASMain: Later, in Agent Studio
+    ASMain->>Main: Publish or rollback: Sync Projects commits the change
 ```
 
 A pull request's changes go to an Agent Studio branch with the same name as the git branch, where you can test them. The merge queue merges that branch into Agent Studio main, which publishes the project, and squashes the PR onto git `main`. Changes published in Agent Studio come back to git `main` through the Sync Projects workflow.
