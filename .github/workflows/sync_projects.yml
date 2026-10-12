@@ -38,6 +38,8 @@ permissions:
 jobs:
   resolve:
     name: Resolve sync request
+    # The template has no projects, so its nightly sync has nothing to do. Repos created from it run as normal.
+    if: github.event_name != 'schedule' || github.repository != 'polyai/adk-deployments'
     runs-on: ubuntu-latest
     permissions: {}
     outputs:
@@ -68,7 +70,8 @@ jobs:
           USER_EMAIL: ${{ github.event.client_payload.deployment.user }}
         run: |
           set_output() {
-            local delim="EOF_$(openssl rand -hex 8)"
+            local delim
+            delim="EOF_$(openssl rand -hex 8)"
             { echo "$1<<$delim"; printf '%s\n' "$2"; echo "$delim"; } >> "$GITHUB_OUTPUT"
           }
 
@@ -190,7 +193,7 @@ jobs:
       has_projects: ${{ steps.find.outputs.has_projects }}
       poly_adk_version_changed: ${{ steps.check-version.outputs.changed }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ inputs.branch || 'main' }}
@@ -200,13 +203,13 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
             if git diff HEAD~1 HEAD -- pyproject.toml | grep -q "polyai-adk"; then
-              echo "changed=true" >> $GITHUB_OUTPUT
+              echo "changed=true" >> "$GITHUB_OUTPUT"
               echo "Poly ADK version changed — syncing all projects"
             else
-              echo "changed=false" >> $GITHUB_OUTPUT
+              echo "changed=false" >> "$GITHUB_OUTPUT"
             fi
           else
-            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Find projects
@@ -250,17 +253,20 @@ jobs:
           done < <(find agents -name project.yaml -maxdepth 3)
 
           if [ ${#PROJECTS[@]} -eq 0 ]; then
-            echo "::error::No projects found"
-            echo "has_projects=false" >> $GITHUB_OUTPUT
-            echo "projects=[]" >> $GITHUB_OUTPUT
+            echo "has_projects=false" >> "$GITHUB_OUTPUT"
+            echo "projects=[]" >> "$GITHUB_OUTPUT"
             # A dispatch names one project, so finding none means the sync didn't happen.
-            [ "$EVENT_NAME" = repository_dispatch ] && exit 1
+            if [ "$EVENT_NAME" = repository_dispatch ]; then
+              echo "::error::No projects found"
+              exit 1
+            fi
+            echo "::notice::No projects found"
             exit 0
           fi
 
           PROJECTS_JSON=$(printf '%s\n' "${PROJECTS[@]}" | jq -R -s -c 'split("\n") | map(select(length > 0))')
-          echo "projects=$PROJECTS_JSON" >> $GITHUB_OUTPUT
-          echo "has_projects=true" >> $GITHUB_OUTPUT
+          echo "projects=$PROJECTS_JSON" >> "$GITHUB_OUTPUT"
+          echo "has_projects=true" >> "$GITHUB_OUTPUT"
           echo "Found projects: $PROJECTS_JSON"
 
   sync-projects:
@@ -276,15 +282,15 @@ jobs:
       matrix:
         project: ${{ fromJson(needs.find-projects.outputs.projects) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.branch || 'main' }}
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@v10.3.0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
 
@@ -332,7 +338,7 @@ jobs:
       # one keeps the push credential out of the environment while the ADK tooling runs.
       - name: Generate GitHub App token
         id: app-token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.GH_APP_ID }}
           private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}

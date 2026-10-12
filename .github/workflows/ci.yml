@@ -18,7 +18,7 @@ jobs:
       projects: ${{ steps.detect.outputs.projects }}
       has_projects: ${{ steps.detect.outputs.has_projects }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -40,11 +40,11 @@ jobs:
           fi
 
           PROJECTS=$(.github/scripts/detect-changed-dirs.sh --prefix agents --depth 2 --range "$BASE_SHA" "$HEAD_SHA" $MERGE_BASE_FLAG --format json)
-          echo "projects=$PROJECTS" >> $GITHUB_OUTPUT
+          echo "projects=$PROJECTS" >> "$GITHUB_OUTPUT"
           if [ "$PROJECTS" != "[]" ] && [ -n "$PROJECTS" ]; then
-            echo "has_projects=true" >> $GITHUB_OUTPUT
+            echo "has_projects=true" >> "$GITHUB_OUTPUT"
           else
-            echo "has_projects=false" >> $GITHUB_OUTPUT
+            echo "has_projects=false" >> "$GITHUB_OUTPUT"
           fi
 
   lint-and-test:
@@ -54,13 +54,13 @@ jobs:
     env:
       CI: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@v10.3.0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
 
@@ -147,14 +147,14 @@ jobs:
       matrix:
         project: ${{ fromJson(needs.detect-changes.outputs.projects) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
 
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@v10.3.0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
 
@@ -213,9 +213,24 @@ jobs:
             "agents/${PROJECT}" \
             "$BRANCH_NAME"
 
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download actionlint
+        id: get-actionlint
+        run: bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12
+
+      # Lints the run: scripts with the runner's shellcheck too.
+      - name: Lint workflows
+        env:
+          ACTIONLINT: ${{ steps.get-actionlint.outputs.executable }}
+        run: '"$ACTIONLINT" -color'
+
   ci:
     name: Verify all CI jobs passed or were skipped
-    needs: [detect-changes, lint-and-test, push-to-as-branch]
+    needs: [detect-changes, lint-and-test, push-to-as-branch, actionlint]
     runs-on: ubuntu-latest
     if: always()
     permissions:
@@ -237,6 +252,10 @@ jobs:
             FAILED_JOBS="${FAILED_JOBS}push-to-as-branch "
           fi
 
+          if [ "${{ needs.actionlint.result }}" != "success" ] && [ "${{ needs.actionlint.result }}" != "skipped" ]; then
+            FAILED_JOBS="${FAILED_JOBS}actionlint "
+          fi
+
           if [ -n "$FAILED_JOBS" ]; then
             echo "The following CI jobs failed: $FAILED_JOBS"
             echo ""
@@ -244,6 +263,7 @@ jobs:
             echo "  detect-changes: ${{ needs.detect-changes.result }}"
             echo "  lint-and-test: ${{ needs.lint-and-test.result }}"
             echo "  push-to-as-branch: ${{ needs.push-to-as-branch.result }}"
+            echo "  actionlint: ${{ needs.actionlint.result }}"
             exit 1
           fi
 
@@ -253,3 +273,4 @@ jobs:
           echo "  detect-changes: ${{ needs.detect-changes.result }}"
           echo "  lint-and-test: ${{ needs.lint-and-test.result }}"
           echo "  push-to-as-branch: ${{ needs.push-to-as-branch.result }}"
+          echo "  actionlint: ${{ needs.actionlint.result }}"
