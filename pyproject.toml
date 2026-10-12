@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "adk-deployments"
+name = "adk-repo-template"
 version = "0.1.0"
 description = "ADK-managed agent projects"
 readme = "README.md"
@@ -28,7 +28,7 @@ ci = [
 ]
 # Local development: CI tooling plus `poly call` voice deps (version follows the polyai-adk pin above)
 dev = [
-  "adk-deployments[ci]",
+  "adk-repo-template[ci]",
   "polyai-adk[call]",
   "pre-commit>=3.0.0",
   "ty>=0.0.2",

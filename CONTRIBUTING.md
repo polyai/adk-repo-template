@@ -39,7 +39,7 @@ Is it an agent project change (flows, functions, prompts, tests)?
 │
 Is it a CI/CD or script change?
 ├─ Yes, and it should apply to ALL deployment repos
-│  → Change it in adk-deployments (the template), then sync downstream.
+│  → Change it in adk-repo-template (the template), then sync downstream.
 ├─ Yes, but it's specific to THIS repo
 │  → Change it here, but be aware sync-from-template.sh will overwrite
 │    .github/. Move repo-specific logic into a non-synced location or

@@ -3,9 +3,9 @@
   <img alt="PolyAI" src=".github/assets/polyai-logo-on-light.svg" width="540">
 </picture>
 
-# ADK Deployments
+# ADK Repo Template
 
-[![CI](https://github.com/polyai/adk-deployments/actions/workflows/ci.yml/badge.svg)](https://github.com/polyai/adk-deployments/actions/workflows/ci.yml)
+[![CI](https://github.com/polyai/adk-repo-template/actions/workflows/ci.yml/badge.svg)](https://github.com/polyai/adk-repo-template/actions/workflows/ci.yml)
 [![PolyAI ADK](https://img.shields.io/pypi/v/polyai-adk?label=PolyAI%20ADK)](https://github.com/polyai/adk)
 [![Python 3.14](https://img.shields.io/badge/python-3.14-blue)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
@@ -16,7 +16,7 @@ Template repository for ADK-managed agent projects. Each project under `agents/`
 
 New to PolyAI? Sign up at [studio.poly.ai](https://studio.poly.ai) and start free.
 
-**[Use this template](https://github.com/new?template_name=adk-deployments&template_owner=polyai)** · **[Set up a new repo](SETUP.md)** · **[ADK documentation](https://polyai.github.io/adk/)**
+**[Use this template](https://github.com/new?template_name=adk-repo-template&template_owner=polyai)** · **[Set up a new repo](SETUP.md)** · **[ADK documentation](https://polyai.github.io/adk/)**
 
 - [How it works](#how-it-works): how changes move between git and Agent Studio.
 - [Getting started](#getting-started): set up your machine to work on projects in an existing repo.

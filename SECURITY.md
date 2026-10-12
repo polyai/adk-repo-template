@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Please don't report security problems in a public issue. Report them privately through GitHub instead: on the repo's **Security** tab, choose **Report a vulnerability**, or go to [the advisory form](https://github.com/polyai/adk-deployments/security/advisories/new).
+Please don't report security problems in a public issue. Report them privately through GitHub instead: on the repo's **Security** tab, choose **Report a vulnerability**, or go to [the advisory form](https://github.com/polyai/adk-repo-template/security/advisories/new).
 
 Include what you found, where (the workflow, script or setup step), and how to reproduce it. The maintainers will reply in the advisory.
 
