@@ -3,7 +3,7 @@
 ## Repository Structure
 
 ```
-<root>/                             # e.g. agents/ (template) or vedara/ (downstream)
+<root>/                             # e.g. agents/ (template) or <client>/ (downstream)
   <account>/
     <project>/                      # One Agent Studio project
       project.yaml                  # AS project definition
