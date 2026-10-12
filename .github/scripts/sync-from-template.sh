@@ -1,5 +1,5 @@
 #!/bin/bash
-# Sync CI/CD infrastructure files from the adk-deployments template repo.
+# Sync CI/CD infrastructure files from the adk-repo-template template repo.
 #
 # Usage:
 #   .github/scripts/sync-from-template.sh            # preview changes
@@ -17,7 +17,7 @@
 
 set -e
 
-TEMPLATE_REPO="https://github.com/polyai/adk-deployments.git"
+TEMPLATE_REPO="https://github.com/polyai/adk-repo-template.git"
 TEMPLATE_REMOTE="template-upstream"
 TEMPLATE_REF="main"
 APPLY=false
@@ -77,7 +77,7 @@ echo ""
 
 if [ "$APPLY" = true ]; then
   git add "${SYNC_PATHS[@]}"
-  git commit -m "chore: Sync infrastructure from adk-deployments template
+  git commit -m "chore: Sync infrastructure from adk-repo-template
 
 Synced from $TEMPLATE_REMOTE/$TEMPLATE_REF"
   echo "Committed. Review with 'git show' then push."

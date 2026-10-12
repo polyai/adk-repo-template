@@ -39,7 +39,7 @@ jobs:
   resolve:
     name: Resolve sync request
     # The template has no projects, so its nightly sync has nothing to do. Repos created from it run as normal.
-    if: github.event_name != 'schedule' || github.repository != 'polyai/adk-deployments'
+    if: github.event_name != 'schedule' || github.repository != 'polyai/adk-repo-template'
     runs-on: ubuntu-latest
     permissions: {}
     outputs:
