@@ -14,6 +14,7 @@ These come from the template but belong to the template repo itself. Replace the
 
 - `CODEOWNERS`: names the template's maintainers
 - `.github/ISSUE_TEMPLATE/`: issue forms for reporting problems with the template
+- `SECURITY.md`: how to report security problems in the template
 
 ## 2. GitHub App
 

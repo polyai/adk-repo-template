@@ -12,7 +12,7 @@
 #
 # NOT synced (repo-specific):
 #   pyproject.toml, README.md, .gitignore
-#   CODEOWNERS, .github/ISSUE_TEMPLATE/ (the template repo's own)
+#   CODEOWNERS, SECURITY.md, .github/ISSUE_TEMPLATE/ (the template repo's own)
 #   agents/ (project content)
 
 set -e
