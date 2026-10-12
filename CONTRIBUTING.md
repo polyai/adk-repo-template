@@ -111,7 +111,7 @@ PR enters merge queue
   → Verifies AS branch is deleted
 
 Changes made directly in Agent Studio?
-  → Sync Projects runs on the Agent Studio publish or rollback dispatch, if configured (see README)
+  → Sync Projects runs on the Agent Studio publish or rollback dispatch, if configured (see SETUP.md)
   → Otherwise run it manually; it also runs nightly and on an ADK version bump
   → Pulls from AS main, formats, commits to git main
   → WARNING: unsynced AS changes will be overwritten by the next PR merge
@@ -121,7 +121,7 @@ Changes made directly in Agent Studio?
 
 ```
 Did a human edit something in the Agent Studio UI?
-├─ Yes → Publishing syncs it automatically if the webhook is set up (see README);
+├─ Yes → Publishing syncs it automatically if the webhook is set up (see SETUP.md);
 │        otherwise run the Sync Projects workflow to pull those changes into git.
 │        Do this BEFORE merging any PRs that touch the same project.
 │

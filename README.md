@@ -16,13 +16,43 @@ Template repository for ADK-managed agent projects. Each project under `agents/`
 
 New to PolyAI? Sign up at [studio.poly.ai](https://studio.poly.ai) and start free.
 
-**[Use this template](https://github.com/new?template_name=adk-deployments&template_owner=polyai)** · **[ADK documentation](https://polyai.github.io/adk/)**
+**[Use this template](https://github.com/new?template_name=adk-deployments&template_owner=polyai)** · **[Set up a new repo](SETUP.md)** · **[ADK documentation](https://polyai.github.io/adk/)**
 
+- [How it works](#how-it-works): how changes move between git and Agent Studio.
 - [Getting started](#getting-started): set up your machine to work on projects in an existing repo.
+- [Development workflow](#development-workflow): branches, pull requests, and trying changes in Agent Studio.
 - [Adding a project](#adding-a-project): bring a project the repo doesn't have yet.
-- [Development workflow](#development-workflow): how changes move between git and Agent Studio.
-- [Syncing from Agent Studio](#syncing-from-agent-studio): the sync workflow and its webhook.
-- [Setting up a new repo from this template](#setting-up-a-new-repo-from-this-template): one-off setup for repo admins.
+- [Syncing from Agent Studio](#syncing-from-agent-studio): when the sync workflow runs.
+- [Keeping up to date](#keeping-up-to-date): the ADK version and the template's workflows.
+- [Troubleshooting](#troubleshooting): common failures and their fixes.
+- [Setting up a new repo](SETUP.md): one-off setup for repo admins.
+
+## How it works
+
+```mermaid
+flowchart LR
+    subgraph GitHub
+        pr[Pull request] --> queue[Merge queue] --> main[main]
+    end
+    subgraph Studio[Agent Studio]
+        branch[Branch named after the PR] -- "Deploy merges and publishes" --> asmain[main]
+    end
+    pr -- "CI pushes" --> branch
+    asmain -- "Sync Projects, on publish or rollback" --> main
+```
+
+A pull request's changes go to an Agent Studio branch with the same name as the git branch, where you can test them. The merge queue merges that branch into Agent Studio main, which publishes the project, and squashes the PR onto git `main`. Changes published in Agent Studio come back to git `main` through the Sync Projects workflow.
+
+```
+agents/
+  <account>/
+    <project>/          # Agent Studio project
+.github/
+  workflows/            # CI, deploy, sync, branch cleanup
+  scripts/              # Shared shell + Python scripts for CI
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full structure and for writing unit tests.
 
 ## Getting started
 
@@ -51,6 +81,62 @@ The git hooks format each project you commit to with `.github/scripts/format-pro
 
 In VS Code, select the `.venv` interpreter: `Cmd+Shift+P` > **"Python: Select Interpreter"** > choose `.venv/bin/python`.
 
+## Development workflow
+
+### Making changes
+
+1. Create a git branch. Then, from the project directory, create the Agent Studio branch with the same name (from main). Your files are kept:
+
+   ```bash
+   poly branch create $(git branch --show-current)
+   ```
+
+   The ADK tracks its Agent Studio branch separately from git, so switching git branches doesn't move it. Check it with `poly branch current`. For a branch CI has already pushed, switch to it instead. This loads the branch's state into the project files:
+
+   ```bash
+   poly branch switch $(git branch --show-current)
+   ```
+
+2. Make your changes and commit them.
+3. Open a PR. CI runs lint and tests, then pushes your changes to the Agent Studio branch.
+4. Merge through the merge queue. Deploy merges the Agent Studio branch into Agent Studio main, which publishes the project.
+
+### Trying changes in Agent Studio
+
+CI pushes to the Agent Studio branch on every PR push. To try a change before pushing to GitHub, run these from the project directory, on the Agent Studio branch that matches your git branch:
+
+```bash
+# Push to the Agent Studio branch
+poly push
+
+# Pull from Agent Studio
+poly pull
+
+# Chat with the agent on your Agent Studio branch, pushing local changes first
+poly chat --push
+
+# Call the agent with your microphone and speaker (needs a non-main branch)
+poly call --push
+```
+
+> [!NOTE]
+> `poly push` sends your local project files to the Agent Studio branch. It is not a git push.
+
+`poly chat` talks to the last pushed state of your Agent Studio branch, and `--environment` picks another environment instead. `poly call` only reaches a branch's draft build, not main. Its audio dependencies come with the `dev` extras. See the ADK docs for [`poly chat`](https://polyai.github.io/adk/reference/cli/chat/), [`poly call`](https://polyai.github.io/adk/reference/cli/call/), [testing](https://polyai.github.io/adk/development/testing/) and the [full CLI reference](https://polyai.github.io/adk/reference/cli/).
+
+### Lint and test
+
+The git hooks and CI run these for you. To run them yourself, from the repo root:
+
+```bash
+# Run tests for a project
+pytest agents/<account>/<project>/
+
+# Lint
+ruff check agents/<account>/<project>/
+ruff format --check agents/<account>/<project>/
+```
+
 ## Adding a project
 
 Only for a project that isn't in `agents/` yet. From the repo root:
@@ -67,41 +153,13 @@ pre-commit run --all-files
 git add agents/<account>/<project>
 ```
 
-Then commit it on a branch and open a PR. CI finds projects by their `project.yaml`, so nothing else needs registering. Once it's merged, [set up the sync webhook](#agent-studio-webhook) for the project.
-
-## Repository structure
-
-```
-agents/
-  <account>/
-    <project>/          # Agent Studio project
-.github/
-  workflows/            # CI, deploy, sync, branch cleanup
-  scripts/              # Shared shell + Python scripts for CI
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full structure and for writing unit tests.
-
-## Development workflow
-
-### Making changes
-
-1. Create a git branch and open a PR.
-2. CI runs lint and tests, then pushes your changes to an Agent Studio branch with the same name as your git branch, for testing.
-3. Merge through the merge queue. Deploy merges the Agent Studio branch into Agent Studio main, which publishes the project.
-
-### Pushing to Agent Studio locally
-
-CI does this on every PR push. To try a change in Agent Studio before pushing to GitHub, run `poly push` from the project directory, on the Agent Studio branch that matches your git branch (see [Commands](#commands)).
-
-> [!NOTE]
-> `poly push` sends your local project files to the Agent Studio branch. It is not a git push.
+Then commit it on a branch and open a PR. CI finds projects by their `project.yaml`, so nothing else needs registering. Once it's merged, [set up the sync webhook](SETUP.md#5-agent-studio-webhooks) for the project.
 
 ## Syncing from Agent Studio
 
 The **Sync Projects** workflow pulls the latest state from Agent Studio into the repo and pushes it to `main`. It runs:
 
-- when Agent Studio sends a dispatch after a publish or rollback (see [Agent Studio webhook](#agent-studio-webhook))
+- when Agent Studio sends a dispatch after a publish or rollback (see [Agent Studio webhooks](SETUP.md#5-agent-studio-webhooks))
 - nightly at 03:00 UTC
 - when the ADK version in `pyproject.toml` changes
 - manually, from the Actions tab
@@ -109,204 +167,18 @@ The **Sync Projects** workflow pulls the latest state from Agent Studio into the
 > [!NOTE]
 > A merge can't overwrite changes made in Agent Studio that haven't been synced yet. In the merge queue, Deploy checks that Agent Studio main matches git `main`, and fails the PR with `AS branch main is not in sync with git main` if a sync would change anything. Run Sync Projects for the project, then re-queue the PR. The webhook keeps the repo in sync, so this rarely happens.
 
-### Agent Studio webhook
+## Keeping up to date
 
-Each project needs a webhook so that publishing in Agent Studio starts a sync.
+### Updating the ADK version
 
-**1. Create a GitHub token.** Create a [fine-grained personal access token](https://github.com/settings/personal-access-tokens/new) with:
-
-- **Resource owner:** the organisation that owns this repo, not your personal account
-- **Repository access:** only this repo
-- **Repository permissions:** Contents: Read and write
-
-Syncs stop without an error when the token expires, so note the expiry date.
-
-**2. Store it in Agent Studio.** In the project's workspace, create a secret:
-
-| Field          | Value                                    |
-| -------------- | ---------------------------------------- |
-| Name           | `github-sync-token`                      |
-| Type           | Single value                             |
-| Value          | `Bearer <token>` (with the `Bearer ` prefix) |
-| Project access | the project                              |
-
-**3. Add the webhook.** Add a `webhooks` key to `agents/<account>/<project>/agent_settings/experimental_config.json`. `on_draft_published` fires on merges to main and `on_deployment.live` on rollbacks:
-
-```json
-{
-  "webhooks": {
-    "on_draft_published": [
-      {
-        "url": "https://api.github.com/repos/<owner>/<repo>/dispatches",
-        "auth": { "header": "Authorization", "secret_name": "github-sync-token" },
-        "payload_template": {
-          "event_type": "project-{{deployment_type}}-{{client_env}}",
-          "client_payload": {
-            "account_id": "{{account_id}}",
-            "project_id": "{{project_id}}",
-            "deployment": "{{payload}}"
-          }
-        }
-      }
-    ],
-    "on_deployment": {
-      "live": [
-        {
-          "url": "https://api.github.com/repos/<owner>/<repo>/dispatches",
-          "auth": { "header": "Authorization", "secret_name": "github-sync-token" },
-          "payload_template": {
-            "event_type": "project-{{deployment_type}}-{{client_env}}",
-            "client_payload": {
-              "account_id": "{{account_id}}",
-              "project_id": "{{project_id}}",
-              "deployment": "{{payload}}"
-            }
-          }
-        }
-      ]
-    }
-  }
-}
-```
-
-Merge it through a PR. Once Deploy publishes it, each publish or rollback in Agent Studio starts a Sync Projects run, which pushes an `Update from AS` commit to `main`. If a second dispatch for the same project arrives while a sync is running, it cancels the first and syncs both changes.
-
-#### Troubleshooting
-
-| Symptom | Cause |
-| ------- | ----- |
-| Publishing starts no run | GitHub rejected the dispatch, usually because the token can't see the repo (its resource owner isn't the organisation, or the repo isn't selected) or the secret is missing, misnamed, or lacks the `Bearer ` prefix or project access. |
-| A PR fails in the merge queue with `AS branch main is not in sync with git main` | Agent Studio has changes the repo doesn't. Run Sync Projects for the project, then re-queue. To merge anyway and overwrite the Agent Studio changes, add the `skip-as-sync-check` label and re-queue. |
-| Sync Projects fails at the GitHub App token step with `Invalid keyData` | `GH_APP_PRIVATE_KEY` isn't a valid key. Set it from the `.pem` file (see [GitHub App](#2-github-app)). |
-| Sync Projects fails at find-projects with `No projects found` | The project isn't on `main` yet, or the dispatch's `account_id`/`project_id` don't match its `project.yaml`. |
-
-## Updating the ADK version
-
-1. Update the version in `pyproject.toml`.
-2. Run `uv pip install -e ".[dev]"` locally to check it installs.
-3. Open a PR. Once it merges, Sync Projects re-syncs every project with the new ADK version.
-4. Check the [ADK releases](https://github.com/polyai/adk/releases) for changelogs and breaking changes.
-
-## Commands
-
-From the repo root:
-
-```bash
-# Run tests for a project
-pytest agents/<account>/<project>/
-
-# Lint
-ruff check agents/<account>/<project>/
-ruff format --check agents/<account>/<project>/
-
-# Sync infrastructure from the template (downstream repos only)
-.github/scripts/sync-from-template.sh --apply
-```
-
-Run these from the project directory, `agents/<account>/<project>/`, on the Agent Studio branch with the same name as your git branch. The ADK tracks its Agent Studio branch separately from git, so switching git branches doesn't move it. Check with `poly branch current`, and set it before you start editing:
-
-```bash
-# A new git branch: create the Agent Studio branch (from main). Your files are kept.
-poly branch create $(git branch --show-current)
-
-# A branch CI has already pushed: switch to it. This loads the branch's state into the project files.
-poly branch switch $(git branch --show-current)
-```
-
-Then:
-
-```bash
-# Push to the Agent Studio branch (CI does this on every PR push)
-poly push
-
-# Pull from Agent Studio
-poly pull
-
-# Chat with the agent on your Agent Studio branch, pushing local changes first
-poly chat --push
-
-# Call the agent with your microphone and speaker (needs a non-main branch)
-poly call --push
-```
-
-`poly chat` talks to the last pushed state of your Agent Studio branch, and `--environment` picks another environment instead. `poly call` only reaches a branch's draft build, not main. Its audio dependencies come with the `dev` extras. See the ADK docs for [`poly chat`](https://polyai.github.io/adk/reference/cli/chat/), [`poly call`](https://polyai.github.io/adk/reference/cli/call/), [testing](https://polyai.github.io/adk/development/testing/) and the [full CLI reference](https://polyai.github.io/adk/reference/cli/).
-
-## Setting up a new repo from this template
-
-Repo admins do this once. Work through the steps in order; the last one checks that everything is connected.
-
-### 1. Create the repo
-
-Create a new GitHub repo from this template, then set up the files each repo owns. These aren't synced from the template:
-
-- `pyproject.toml`: project name, ADK version pin, dev dependencies
-- `README.md`: repo-specific orientation
-- `.gitignore`: any repo-specific ignores
-
-### 2. GitHub App
-
-Sync Projects pushes to `main` with a GitHub App token, so its commits can bypass the branch rules.
-
-1. In the organisation's settings, go to **Developer settings > GitHub Apps > New GitHub App**. Creating it in the organisation rather than your account means it doesn't depend on you.
-   - **Name:** anything unique. Sync commits are authored as `<app-slug>[bot]`.
-   - **Webhook:** untick **Active**.
-   - **Repository permissions:** **Contents: Read and write**. Leave everything else at No access.
-   - **Where can this GitHub App be installed?:** Only on this account.
-2. **Install App**, and choose only this repo.
-3. Under **Private keys**, click **Generate a private key**. GitHub downloads a `.pem` file.
-4. Add the App's credentials as repo secrets. Set the key from the file, so its line breaks survive:
-
-   ```bash
-   gh secret set GH_APP_ID --body <app-id>
-   gh secret set GH_APP_PRIVATE_KEY < path/to/app.private-key.pem
-   ```
-
-   `GH_APP_ID` is the numeric **App ID** at the top of the App's settings page, not the Client ID. Delete the `.pem` once the secret is set.
-
-### 3. ADK keys
-
-Add repo secrets with Agent Studio API keys for CI. Generate keys at your region's Agent Studio settings page (for example `https://studio.us.poly.ai/settings/account`). Changes CI makes are attributed to the key's owner.
-
-- For a single region: `POLY_ADK_KEY`.
-- For several regions: `POLY_ADK_KEY_US`, `POLY_ADK_KEY_UK`, `POLY_ADK_KEY_EUW` and `POLY_ADK_KEY_STUDIO`, as needed.
-
-CI passes these to the ADK as environment variables. For a project, the ADK uses its region's key if it's set, and `POLY_ADK_KEY` otherwise.
-
-### 4. Protect `main`
-
-**Pull request settings.** In **Settings > General > Pull Requests**:
-
-- Allow **squash merging** only; untick merge commits and rebase merging. Each PR must land on `main` as a single commit: Sync Projects spots an ADK version change by comparing `main` with its previous commit.
-- Set the default squash commit message to **Pull request title**.
-- Tick **Automatically delete head branches**.
-
-**Ruleset.** In **Settings > Rules > Rulesets**, create a branch ruleset:
-
-- **Enforcement status:** Active.
-- **Target branches:** the default branch.
-- **Bypass list:** the GitHub App from step 2, set to **Exempt**, so Sync Projects can push straight to `main`.
-- **Rules:**
-  - **Restrict deletions.**
-  - **Block force pushes.**
-  - **Require a pull request before merging**, with allowed merge methods set to **Squash** only.
-  - **Require status checks to pass**, with the check **`Verify all CI jobs passed or were skipped`** from GitHub Actions. CI reports this check on the pull request and Deploy reports it in the merge queue, so this one check gates both. Without it, the queue merges without waiting for Deploy to merge the Agent Studio branch.
-  - **Require merge queue**, with merge method **Squash**, build concurrency **1**, minimum and maximum group size **1**, and **Only merge non-failing pull requests**.
-
-GitHub suggests check names from recent runs. If it isn't suggested yet, type the name exactly.
-
-### 5. Agent Studio webhooks
-
-For each project, set up the [Agent Studio webhook](#agent-studio-webhook).
-
-### 6. Check it works
-
-1. Open a PR that changes a project. CI should push to an Agent Studio branch of the same name.
-2. Merge it through the merge queue. Deploy should merge that branch into Agent Studio main.
-3. Publish a change in Agent Studio. Sync Projects should push an `Update from AS` commit to `main`.
+1. Check the [ADK releases](https://github.com/polyai/adk/releases) for changelogs and breaking changes.
+2. Update the version in `pyproject.toml`.
+3. Run `uv pip install -e ".[dev]"` locally to check it installs.
+4. Open a PR. Once it merges, Sync Projects re-syncs every project with the new ADK version.
 
 ### Syncing infrastructure from the template
 
-Downstream repos pick up workflow and hook changes from this template with:
+Repos made from this template pick up workflow and hook changes from it with:
 
 ```bash
 .github/scripts/sync-from-template.sh            # preview
@@ -314,6 +186,17 @@ Downstream repos pick up workflow and hook changes from this template with:
 ```
 
 This syncs `.github/` and `.pre-commit-config.yaml`.
+
+## Troubleshooting
+
+| Symptom | Cause |
+| ------- | ----- |
+| `poly push` or `poly chat` uses the wrong Agent Studio branch | The ADK's branch doesn't follow git. Check `poly branch current`, then create or switch to the branch named after your git branch (see [Making changes](#making-changes)). |
+| CI fails ruff or prettier on a newly added project | It was committed straight after `poly init`. Format it with the hooks as in [Adding a project](#adding-a-project). |
+| A PR fails in the merge queue with `AS branch main is not in sync with git main` | Agent Studio has changes the repo doesn't. Run Sync Projects for the project, then re-queue. To merge anyway and overwrite the Agent Studio changes, add the `skip-as-sync-check` label and re-queue. |
+| Publishing starts no run | GitHub rejected the dispatch, usually because the token can't see the repo (its resource owner isn't the organisation, or the repo isn't selected) or the secret is missing, misnamed, or lacks the `Bearer ` prefix or project access. See [Agent Studio webhooks](SETUP.md#5-agent-studio-webhooks). |
+| Sync Projects fails at the GitHub App token step with `Invalid keyData` | `GH_APP_PRIVATE_KEY` isn't a valid key. Set it from the `.pem` file (see [GitHub App](SETUP.md#2-github-app)). |
+| Sync Projects fails at find-projects with `No projects found` | The project isn't on `main` yet, or the dispatch's `account_id`/`project_id` don't match its `project.yaml`. |
 
 ## License
 
