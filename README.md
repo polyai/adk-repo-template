@@ -1,6 +1,22 @@
-# adk-deployments
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/polyai-logo-on-dark.png">
+  <img alt="PolyAI" src=".github/assets/polyai-logo-on-light.svg" width="540">
+</picture>
 
-Template repository for ADK-managed agent projects. Each project under `agents/` is an Agent Studio project, managed with the [PolyAI ADK](https://github.com/polyai/adk) ([docs](https://polyai.github.io/adk/)). Pull requests push changes to Agent Studio, and the merge queue merges them there. A sync workflow brings changes made in Agent Studio back into the repo.
+# ADK Deployments
+
+[![CI](https://github.com/polyai/adk-deployments/actions/workflows/ci.yml/badge.svg)](https://github.com/polyai/adk-deployments/actions/workflows/ci.yml)
+[![PolyAI ADK](https://img.shields.io/pypi/v/polyai-adk?label=PolyAI%20ADK)](https://github.com/polyai/adk)
+[![Python 3.14](https://img.shields.io/badge/python-3.14-blue)](https://www.python.org/downloads/)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Develop with Claude Code](https://img.shields.io/badge/Develop%20with-Claude%20Code-DC9E63?logo=claude)](https://claude.ai/download)
+
+Template repository for ADK-managed agent projects. Each project under `agents/` is an Agent Studio project, managed with the [PolyAI ADK](https://github.com/polyai/adk). Pull requests push changes to Agent Studio, and the merge queue merges them there. A sync workflow brings changes made in Agent Studio back into the repo.
+
+New to PolyAI? Sign up at [studio.poly.ai](https://studio.poly.ai) and start free.
+
+**[Use this template](https://github.com/new?template_name=adk-deployments&template_owner=polyai)** · **[ADK documentation](https://polyai.github.io/adk/)**
 
 - [Getting started](#getting-started): set up your machine to work on projects in an existing repo.
 - [Adding a project](#adding-a-project): bring a project the repo doesn't have yet.
@@ -78,7 +94,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full structure and for writing un
 
 CI does this on every PR push. To try a change in Agent Studio before pushing to GitHub, run `poly push` from the project directory, on the Agent Studio branch that matches your git branch (see [Commands](#commands)).
 
-> **Note:** `poly push` sends your local project files to the Agent Studio branch. It is not a git push.
+> [!NOTE]
+> `poly push` sends your local project files to the Agent Studio branch. It is not a git push.
 
 ## Syncing from Agent Studio
 
@@ -89,7 +106,8 @@ The **Sync Projects** workflow pulls the latest state from Agent Studio into the
 - when the ADK version in `pyproject.toml` changes
 - manually, from the Actions tab
 
-> **Note:** A merge can't overwrite changes made in Agent Studio that haven't been synced yet. In the merge queue, Deploy checks that Agent Studio main matches git `main`, and fails the PR with `AS branch main is not in sync with git main` if a sync would change anything. Run Sync Projects for the project, then re-queue the PR. The webhook keeps the repo in sync, so this rarely happens.
+> [!NOTE]
+> A merge can't overwrite changes made in Agent Studio that haven't been synced yet. In the merge queue, Deploy checks that Agent Studio main matches git `main`, and fails the PR with `AS branch main is not in sync with git main` if a sync would change anything. Run Sync Projects for the project, then re-queue the PR. The webhook keeps the repo in sync, so this rarely happens.
 
 ### Agent Studio webhook
 
