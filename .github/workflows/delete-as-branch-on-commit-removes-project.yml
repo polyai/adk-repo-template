@@ -17,7 +17,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
@@ -33,13 +33,13 @@ jobs:
         run: |
           HEAD_SHA="${{ github.event.pull_request.head.sha }}"
           PREV_SHA=$(git rev-parse "$HEAD_SHA^")
-          echo "prev_sha=$PREV_SHA" >> $GITHUB_OUTPUT
+          echo "prev_sha=$PREV_SHA" >> "$GITHUB_OUTPUT"
 
           # Skip merge commits to avoid false positives
           if git rev-parse "$HEAD_SHA^2" >/dev/null 2>&1; then
             echo "Push is a merge commit — skipping removed-project detection"
-            echo "removed_projects=[]" >> $GITHUB_OUTPUT
-            echo "has_removed=false" >> $GITHUB_OUTPUT
+            echo "removed_projects=[]" >> "$GITHUB_OUTPUT"
+            echo "has_removed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -62,13 +62,13 @@ jobs:
 
           REMOVED_JSON=$(echo "$REMOVED" | grep -v '^$' | jq -R -s -c 'split("\n") | map(select(length > 0))')
           [ -z "$REMOVED_JSON" ] && REMOVED_JSON="[]"
-          echo "removed_projects=$REMOVED_JSON" >> $GITHUB_OUTPUT
+          echo "removed_projects=$REMOVED_JSON" >> "$GITHUB_OUTPUT"
 
           if [ "$REMOVED_JSON" != "[]" ]; then
-            echo "has_removed=true" >> $GITHUB_OUTPUT
+            echo "has_removed=true" >> "$GITHUB_OUTPUT"
             echo "Projects removed in this push: $REMOVED_JSON"
           else
-            echo "has_removed=false" >> $GITHUB_OUTPUT
+            echo "has_removed=false" >> "$GITHUB_OUTPUT"
           fi
 
   delete-as-branches:
@@ -84,14 +84,14 @@ jobs:
       contents: read
     steps:
       # Checkout previous HEAD so removed project dirs still exist for project.yaml
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.detect-removed.outputs.prev_sha }}
           fetch-depth: 0
 
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@v10.3.0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
 
