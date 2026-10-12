@@ -191,7 +191,7 @@ Repos made from this template pick up workflow and hook changes from it with:
 .github/scripts/sync-from-template.sh --apply    # apply and commit
 ```
 
-This syncs `.github/` and `.pre-commit-config.yaml`.
+This syncs `.github/workflows/`, `.github/scripts/`, `.github/assets/` and `.pre-commit-config.yaml`.
 
 ## Troubleshooting
 

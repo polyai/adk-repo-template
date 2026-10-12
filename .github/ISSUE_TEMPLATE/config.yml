@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: ADK issues
+    url: https://github.com/polyai/adk/issues
+    about: For problems with the poly CLI itself
+  - name: ADK documentation
+    url: https://polyai.github.io/adk/
+    about: Guides and the full CLI reference

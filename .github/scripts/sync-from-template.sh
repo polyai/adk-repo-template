@@ -7,11 +7,12 @@
 #   .github/scripts/sync-from-template.sh --ref v1.2  # sync from a specific ref
 #
 # Synced paths (infrastructure, meant to be identical across repos):
-#   .github/
+#   .github/workflows/, .github/scripts/, .github/assets/
 #   .pre-commit-config.yaml
 #
 # NOT synced (repo-specific):
 #   pyproject.toml, README.md, .gitignore
+#   CODEOWNERS, SECURITY.md, .github/ISSUE_TEMPLATE/ (the template repo's own)
 #   agents/ (project content)
 
 set -e
@@ -22,7 +23,9 @@ TEMPLATE_REF="main"
 APPLY=false
 
 SYNC_PATHS=(
-  ".github"
+  ".github/workflows"
+  ".github/scripts"
+  ".github/assets"
   ".pre-commit-config.yaml"
 )
 
@@ -76,9 +79,7 @@ if [ "$APPLY" = true ]; then
   git add "${SYNC_PATHS[@]}"
   git commit -m "chore: Sync infrastructure from adk-deployments template
 
-Synced from $TEMPLATE_REMOTE/$TEMPLATE_REF
-
-Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
+Synced from $TEMPLATE_REMOTE/$TEMPLATE_REF"
   echo "Committed. Review with 'git show' then push."
 else
   echo "Preview only. Run with --apply to commit, or review and stage manually."

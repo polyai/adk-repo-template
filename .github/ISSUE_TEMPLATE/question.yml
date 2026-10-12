@@ -1,0 +1,22 @@
+name: Question
+description: Ask a question about using the template
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Not sure how something works? Ask here. For general Agent Studio questions, contact your PolyAI representative.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What would you like to know?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Any relevant details, such as what you've tried and which docs you've checked.
