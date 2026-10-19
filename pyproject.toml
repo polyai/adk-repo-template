@@ -9,8 +9,9 @@ description = "ADK-managed agent projects"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-  "polyai-adk>=0.64,<0.65",
+  "polyai-adk>=0.71,<0.72",
   "pyyaml>=6.0",
+  "ruff==0.17.1",
 ]
 
 [project.optional-dependencies]
@@ -24,7 +25,6 @@ ci = [
   "pytest>=8.0.0",
   "pytest-cov>=6.0.0",
   "requests>=2.28.0",
-  "ruff==0.14.2",
 ]
 # Local development: CI tooling plus `poly call` voice deps (version follows the polyai-adk pin above)
 dev = [
@@ -49,6 +49,7 @@ filterwarnings = [
 ]
 
 [tool.ruff]
+required-version = "==0.17.1"
 target-version = "py314"
 line-length = 100
 src = [
@@ -57,6 +58,7 @@ src = [
 exclude = [
     "**/imports.py",
     "**/_gen/**",
+    "**/*.md",
 ]
 
 [tool.ruff.lint]
