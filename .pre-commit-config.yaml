@@ -11,11 +11,14 @@ repos:
         files: ^agents/
         # It formats whole projects, so parallel batches would rewrite the same files at once.
         require_serial: true
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.2
+  - repo: local
     hooks:
       # format-project.sh tolerates lint errors ruff can't fix; CI doesn't.
       - id: ruff-check
+        name: ruff check
+        entry: ruff check
+        language: system
+        types: [python]
         files: ^agents/
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0

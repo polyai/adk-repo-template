@@ -83,7 +83,7 @@ poly setup
 
 The project you work on is at `agents/<account>/<project>/`. Run `poly` commands from that directory.
 
-The git hooks format each project you commit to with `.github/scripts/format-project.sh`, the same formatting a sync from Agent Studio applies, then run the ruff and ty checks CI runs, plus a JSON syntax check. If the hook reformats files, the commit stops: to fix this, add the changes and commit. Ensure when you commit you use the virtual environment, as the hooks use its `ruff`.
+The git hooks format each project you commit to with `.github/scripts/format-project.sh`, the same formatting a sync from Agent Studio applies, then run the ruff and ty checks CI runs, plus a JSON syntax check. If the hook reformats files, the commit stops: to fix this, add the changes and commit. Ensure when you commit you use the virtual environment, as the hooks use its `poly` and `ruff`.
 
 In VS Code, select the `.venv` interpreter: `Cmd+Shift+P` > **"Python: Select Interpreter"** > choose `.venv/bin/python`.
 
@@ -148,10 +148,12 @@ ruff format --check agents/<account>/<project>/
 Only for a project that isn't in `agents/` yet. From the repo root:
 
 ```bash
-poly init --base-path agents --region <region> --account_id <account> --project_id <project>
+poly init --base-path agents
 ```
 
-This pulls the project into `agents/<account>/<project>/`. A fresh pull isn't formatted the way CI expects, so format it before committing. The hooks only see files git knows about, so stage the project first:
+`poly init` asks you to pick the region, account and project. To skip the questions, pass them with `--region <region> --account_id <account> --project_id <project>`. It pulls the project into `agents/<account>/<project>/`.
+
+Before committing, run the git hooks: they format the project exactly as a sync from Agent Studio would, so CI and the merge queue's sync check accept it. The hooks only see files git knows about, so stage the project first:
 
 ```bash
 git add agents/<account>/<project>
