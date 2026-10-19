@@ -204,7 +204,7 @@ This syncs `.github/workflows/`, `.github/scripts/`, `.github/assets/` and `.pre
 | A PR fails in the merge queue with `AS branch main is not in sync with git main` | Agent Studio has changes the repo doesn't. Run Sync Projects for the project, then re-queue. To merge anyway and overwrite the Agent Studio changes, add the `skip-as-sync-check` label and re-queue. |
 | Publishing starts no run | GitHub rejected the dispatch, usually because the token can't see the repo (its resource owner isn't the organisation, or the repo isn't selected) or the secret is missing, misnamed, or lacks the `Bearer ` prefix or project access. See [Agent Studio webhooks](SETUP.md#5-agent-studio-webhooks). |
 | Sync Projects fails at the GitHub App token step with `Invalid keyData` | `GH_APP_PRIVATE_KEY` isn't a valid key. Set it from the `.pem` file (see [GitHub App](SETUP.md#2-github-app)). |
-| Sync Projects fails at find-projects with `No projects found` | The project isn't on `main` yet, or the dispatch's `account_id`/`project_id` don't match its `project.yaml`. |
+| Sync Projects fails at find-projects with `No projects found matching filters` | No project on `main` has the account or project ID it was given. The project isn't on `main` yet, or the ID from the dispatch or the manual run doesn't match its `project.yaml`. The log prints the IDs it looked for. |
 
 ## License
 

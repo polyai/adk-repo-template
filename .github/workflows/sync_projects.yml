@@ -215,7 +215,6 @@ jobs:
       - name: Find projects
         id: find
         env:
-          EVENT_NAME: ${{ github.event_name }}
           INPUT_ACCOUNT_ID: ${{ needs.resolve.outputs.account_id }}
           INPUT_PROJECT_ID: ${{ needs.resolve.outputs.project_id }}
         run: |
@@ -255,9 +254,11 @@ jobs:
           if [ ${#PROJECTS[@]} -eq 0 ]; then
             echo "has_projects=false" >> "$GITHUB_OUTPUT"
             echo "projects=[]" >> "$GITHUB_OUTPUT"
-            # A dispatch names one project, so finding none means the sync didn't happen.
-            if [ "$EVENT_NAME" = repository_dispatch ]; then
-              echo "::error::No projects found"
+            # A dispatch or a filtered manual run names the projects to sync, so finding none means the sync didn't happen.
+            if should_filter_account || should_filter_project; then
+              echo "::error::No projects found matching filters"
+              should_filter_account && echo "  account_id: $ACCOUNT_FILTER"
+              should_filter_project && echo "  project_id: $PROJECT_FILTER"
               exit 1
             fi
             echo "::notice::No projects found"
