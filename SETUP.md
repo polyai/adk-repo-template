@@ -63,9 +63,39 @@ CI passes these to the ADK as environment variables. For a project, the ADK uses
   - **Block force pushes.**
   - **Require a pull request before merging**, with allowed merge methods set to **Squash** only.
   - **Require status checks to pass**, with the check **`Verify all CI jobs passed or were skipped`** from GitHub Actions. CI reports this check on the pull request and Deploy reports it in the merge queue, so this one check gates both. Without it, the queue merges without waiting for Deploy to merge the Agent Studio branch.
-  - **Require merge queue**, with merge method **Squash**, build concurrency **1**, minimum and maximum group size **1**, and **Only merge non-failing pull requests**.
+  - **Require merge queue**, with merge method **Squash**, build concurrency **1**, minimum and maximum group size **1**, and **Only merge non-failing pull requests**. Leave this out if you use `/poly-merge` instead (below).
 
 GitHub suggests check names from recent runs. If it isn't suggested yet, type the name exactly.
+
+### Merge queue or `/poly-merge`
+
+PRs that change a project merge one of two ways. Both lint, test and deploy the PR merged into `main`, with the same steps.
+
+- **Merge queue** (the default): add the PR to the queue. GitHub offers merge queues on public repos, and on private repos only in organisations on GitHub Enterprise Cloud.
+- **`/poly-merge`**: comment `/poly-merge` on the PR. It works on any plan, and PRs that change different projects deploy at the same time.
+
+To use `/poly-merge`:
+
+1. **Create a second GitHub App** for merging, the same way as in [step 2](#2-github-app). It mustn't be the sync App: that App bypasses the ruleset, and this one must not.
+   - **Repository permissions:** **Checks**, **Contents**, **Issues**, **Pull requests** and **Workflows**, all **Read and write**.
+   - Install it on this repo only, and generate a private key.
+2. **Create an environment** called `merge-command` in **Settings > Environments**, with deployment branches limited to `main`, and add the App's credentials to it:
+
+   ```bash
+   gh secret set MERGE_APP_ID --env merge-command --body <app-id>
+   gh secret set MERGE_APP_PRIVATE_KEY --env merge-command < path/to/merge-app.private-key.pem
+   ```
+
+   With the key in the environment, a workflow on another branch can't read it and pass the deploy check itself.
+3. **Turn it on:**
+
+   ```bash
+   gh variable set DEPLOY_MODE --body command
+   ```
+
+4. **In the ruleset**, leave out **Require merge queue**, and add **`poly/deploy`** as a second required check, with the merge App as its source. Keep the sync App on the bypass list.
+
+Each PR head then gets a `poly/deploy` check, which only the merge App can set. It waits for `/poly-merge` when the PR changes a project, and passes when it doesn't. PRs opened before the setup need a new push to get it.
 
 ## 5. Agent Studio webhooks
 
@@ -132,7 +162,7 @@ Merge it through a PR. Once Deploy publishes it, each publish or rollback in Age
 ## 6. Check it works
 
 1. Open a PR that changes a project. CI should push to an Agent Studio branch of the same name.
-2. Merge it through the merge queue. Deploy should merge that branch into Agent Studio main.
+2. Merge it through the merge queue, or comment `/poly-merge`. That should merge the branch into Agent Studio main, then merge the PR.
 3. Publish a change in Agent Studio. Sync Projects should push an `Update from AS` commit to `main`.
 
 If a step fails, see [Troubleshooting](README.md#troubleshooting).

@@ -96,18 +96,22 @@ jobs:
           set_output user "$USER_EMAIL"
 
   wait-for-merge-queue:
-    name: Wait for merge queue
+    name: Wait for merge queue or /poly-merge
     needs: [resolve]
     if: needs.resolve.outputs.from_deployment == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: read
+      actions: read
     steps:
-      - name: Wait if deployment matches merge queue PR
+      # Waits while the PR named in the deployment message is still merging: in the merge
+      # queue, or in a /poly-merge run when DEPLOY_MODE=command.
+      - name: Wait if deployment matches a PR still merging
         env:
           GH_TOKEN: ${{ github.token }}
           DEPLOYMENT_MESSAGE: ${{ needs.resolve.outputs.deployment_message }}
+          DEPLOY_MODE: ${{ vars.DEPLOY_MODE }}
         run: |
           if [ -z "$DEPLOYMENT_MESSAGE" ]; then
             echo "No deployment message, proceeding with sync"
@@ -155,17 +159,26 @@ jobs:
             [ "$stripped" = "$DEPLOY_TITLE" ]
           }
 
-          MQ_ENTRY=$(check_merge_queue)
+          still_merging() {
+            if [ "$DEPLOY_MODE" = command ]; then
+              [ -n "$DEPLOY_PR" ] && for status in requested queued pending waiting in_progress; do
+                gh run list -R "$GITHUB_REPOSITORY" -w merge-command.yml -s "$status" -L 100 \
+                  --json displayTitle --jq '.[].displayTitle'
+              done | grep -qx "/poly-merge #$DEPLOY_PR"
+            else
+              matches_deployment "$(check_merge_queue)"
+            fi
+          }
 
-          if ! matches_deployment "$MQ_ENTRY"; then
-            echo "No merge queue conflict, proceeding with sync"
+          if ! still_merging; then
+            echo "No merge in progress for this deployment, proceeding with sync"
             exit 0
           fi
 
-          echo "::notice::PR #$DEPLOY_PR is in the merge queue and matches deployment"
-          echo "Polling until merge queue clears (max 5m)..."
+          echo "::notice::PR #$DEPLOY_PR is still merging and matches deployment"
+          echo "Polling until it finishes (max 15m)..."
 
-          TIMEOUT=300
+          TIMEOUT=900
           INTERVAL=15
           ELAPSED=0
 
@@ -173,16 +186,15 @@ jobs:
             sleep $INTERVAL
             ELAPSED=$((ELAPSED + INTERVAL))
 
-            MQ_ENTRY=$(check_merge_queue)
-            if ! matches_deployment "$MQ_ENTRY"; then
-              echo "Merge queue cleared after ${ELAPSED}s, proceeding with sync"
+            if ! still_merging; then
+              echo "PR #$DEPLOY_PR finished merging after ${ELAPSED}s, proceeding with sync"
               exit 0
             fi
 
-            echo "PR #$DEPLOY_PR still in merge queue, waiting... (${ELAPSED}/${TIMEOUT}s)"
+            echo "PR #$DEPLOY_PR still merging, waiting... (${ELAPSED}/${TIMEOUT}s)"
           done
 
-          echo "::warning::Merge queue did not clear within ${TIMEOUT}s, proceeding with sync anyway"
+          echo "::warning::PR #$DEPLOY_PR did not finish merging within ${TIMEOUT}s, proceeding with sync anyway"
 
   find-projects:
     needs: [resolve, wait-for-merge-queue]

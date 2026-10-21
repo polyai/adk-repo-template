@@ -13,16 +13,21 @@
     ci.yml                          # PR lint, test, push to AS branch
     actionlint.yml                  # Lint workflows on PRs that change .github/
     deploy.yml                      # Merge queue: merge AS branch to AS main
+    merge-command.yml               # /poly-merge: deploy and merge a PR from a comment
+    deploy-check.yml                # Sets the poly/deploy check on each PR head
     sync_projects.yml               # Pull from AS into git (AS dispatch, nightly, manual, ADK bump)
     delete-as-branch-on-pr-close.yml
     delete-as-branch-on-commit-removes-project.yml
   scripts/
     detect-changed-dirs.sh          # Find which projects changed in a commit range
+    lint-and-test.sh                # Lint, format-check, type-check and test projects
+    deploy-project.sh               # Push a project to its AS branch and merge it
     run-tests.sh                    # Run pytest for changed projects
     format-project.sh               # Formatting applied after every pull from AS
     pre-commit-format.sh            # Pre-commit hook: format-project.sh on staged projects
     sync-from-template.sh           # Pull infra updates from template repo
     poly_adk_scripts/               # ADK operations (push, pull, merge, validate)
+    merge_command/                  # /poly-merge: gate, finish, checkout of the merge, tests
 pyproject.toml                      # Python deps, ruff/ty/pytest config
 .pre-commit-config.yaml             # Pre-commit hooks (synced from template)
 ```
@@ -36,7 +41,7 @@ pyproject.toml                      # Python deps, ruff/ty/pytest config
 ```
 Is it an agent project change (flows, functions, prompts, tests)?
 ├─ Yes → <root>/<account>/<project>/
-│        Branch, PR, CI pushes to AS branch, merge queue merges to AS main.
+│        Branch, PR, CI pushes to AS branch, merge queue or /poly-merge merges to AS main.
 │
 Is it a CI/CD or script change?
 ├─ Yes, and it should apply to ALL deployment repos
@@ -110,6 +115,13 @@ PR enters merge queue
   → Pushes final state to AS branch
   → Merges AS branch to AS main
   → Verifies AS branch is deleted
+
+Or, with DEPLOY_MODE=command, someone comments /poly-merge on the PR
+  → merge-command.yml checks access, approvals, required checks and conflicts (gate.py)
+  → Waits for earlier /poly-merge runs that touch the same projects
+  → Lints and tests the PR merged into main (lint-and-test.sh)
+  → Pushes every project to its AS branch, then merges each into AS main (deploy-project.sh)
+  → Squash-merges the PR and reports on it (finish.py)
 
 Changes made directly in Agent Studio?
   → Sync Projects runs on the Agent Studio publish or rollback dispatch, if configured (see SETUP.md)

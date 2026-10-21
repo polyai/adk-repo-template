@@ -12,7 +12,7 @@
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Develop with Claude Code](https://img.shields.io/badge/Develop%20with-Claude%20Code-DC9E63?logo=claude)](https://claude.ai/download)
 
-Template repository for ADK-managed agent projects. Each project under `agents/` is an Agent Studio project, managed with the [PolyAI ADK](https://github.com/polyai/adk). Pull requests push changes to Agent Studio, and the merge queue merges them there. A sync workflow brings changes made in Agent Studio back into the repo.
+Template repository for ADK-managed agent projects. Each project under `agents/` is an Agent Studio project, managed with the [PolyAI ADK](https://github.com/polyai/adk). Pull requests push changes to Agent Studio, and the merge queue, or a `/poly-merge` comment, merges them there. A sync workflow brings changes made in Agent Studio back into the repo.
 
 New to PolyAI? Sign up at [studio.poly.ai](https://studio.poly.ai) and start free.
 
@@ -40,14 +40,14 @@ sequenceDiagram
         participant ASMain as main
     end
     PR->>Branch: CI pushes on every PR push
-    Note over PR,ASMain: Merge queue
+    Note over PR,ASMain: Merge queue or /poly-merge
     Branch->>ASMain: Deploy merges the branch and publishes
     PR->>Main: The PR is squashed onto main
     Note over Main,ASMain: Later, in Agent Studio
     ASMain->>Main: Publish or rollback: Sync Projects commits the change
 ```
 
-A pull request's changes go to an Agent Studio branch with the same name as the git branch, where you can test them. The merge queue merges that branch into Agent Studio main, which publishes the project, and squashes the PR onto git `main`. Changes published in Agent Studio come back to git `main` through the Sync Projects workflow.
+A pull request's changes go to an Agent Studio branch with the same name as the git branch, where you can test them. The merge queue, or a `/poly-merge` comment in repos set up for it, merges that branch into Agent Studio main, which publishes the project, and squashes the PR onto git `main`. Changes published in Agent Studio come back to git `main` through the Sync Projects workflow.
 
 ```
 agents/
@@ -105,7 +105,7 @@ In VS Code, select the `.venv` interpreter: `Cmd+Shift+P` > **"Python: Select In
 
 2. Make your changes and commit them.
 3. Open a PR. CI runs lint and tests, then pushes your changes to the Agent Studio branch.
-4. Merge through the merge queue. Deploy merges the Agent Studio branch into Agent Studio main, which publishes the project.
+4. Merge through the merge queue, or comment `/poly-merge` if the repo uses it (see [Merge queue or `/poly-merge`](SETUP.md#merge-queue-or-poly-merge)). Either way, the PR merged into `main` is linted, tested and deployed: its Agent Studio branch merges into Agent Studio main, which publishes the project, then the PR is squashed onto `main`.
 
 ### Trying changes in Agent Studio
 
@@ -173,7 +173,7 @@ The **Sync Projects** workflow pulls the latest state from Agent Studio into the
 - manually, from the Actions tab
 
 > [!NOTE]
-> A merge can't overwrite changes made in Agent Studio that haven't been synced yet. In the merge queue, Deploy checks that Agent Studio main matches git `main`, and fails the PR with `AS branch main is not in sync with git main` if a sync would change anything. Run Sync Projects for the project, then re-queue the PR. The webhook keeps the repo in sync, so this rarely happens.
+> A merge can't overwrite changes made in Agent Studio that haven't been synced yet. Before merging, Deploy or `/poly-merge` checks that Agent Studio main matches git `main`, and fails the PR with `AS branch main is not in sync with git main` if a sync would change anything. Run Sync Projects for the project, then re-queue the PR or comment `/poly-merge` again. The webhook keeps the repo in sync, so this rarely happens.
 
 ## Keeping up to date
 
@@ -201,7 +201,9 @@ This syncs `.github/workflows/`, `.github/scripts/`, `.github/assets/` and `.pre
 | ------- | ----- |
 | `poly push` or `poly chat` uses the wrong Agent Studio branch | The ADK's branch doesn't follow git. Check `poly branch current`, then create or switch to the branch named after your git branch (see [Making changes](#making-changes)). |
 | CI fails ruff or prettier on a newly added project | It was committed straight after `poly init`. Format it with the hooks as in [Adding a project](#adding-a-project). |
-| A PR fails in the merge queue with `AS branch main is not in sync with git main` | Agent Studio has changes the repo doesn't. Run Sync Projects for the project, then re-queue. To merge anyway and overwrite the Agent Studio changes, add the `skip-as-sync-check` label and re-queue. |
+| A PR fails in the merge queue or `/poly-merge` with `AS branch main is not in sync with git main` | Agent Studio has changes the repo doesn't. Run Sync Projects for the project, then re-queue or comment `/poly-merge` again. To merge anyway and overwrite the Agent Studio changes, add the `skip-as-sync-check` label first. |
+| `/poly-merge` does nothing | The repo variable `DEPLOY_MODE` isn't `command`, or the comment isn't exactly `/poly-merge`. |
+| A PR waits for `poly/deploy` | It changes a project: comment `/poly-merge`. If the check is missing, the PR was last pushed before `/poly-merge` was set up: push a commit. |
 | Publishing starts no run | GitHub rejected the dispatch, usually because the token can't see the repo (its resource owner isn't the organisation, or the repo isn't selected) or the secret is missing, misnamed, or lacks the `Bearer ` prefix or project access. See [Agent Studio webhooks](SETUP.md#5-agent-studio-webhooks). |
 | Sync Projects fails at the GitHub App token step with `Invalid keyData` | `GH_APP_PRIVATE_KEY` isn't a valid key. Set it from the `.pem` file (see [GitHub App](SETUP.md#2-github-app)). |
 | Sync Projects fails at find-projects with `No projects found` | The project isn't on `main` yet, or the dispatch's `account_id`/`project_id` don't match its `project.yaml`. |

@@ -59,73 +59,15 @@ jobs:
           source .venv/bin/activate
           uv pip install -e ".[ci]"
 
-      - name: Lint with ruff
-        env:
-          PROJECTS_JSON: ${{ needs.detect-changes.outputs.projects }}
-        run: |
-          source .venv/bin/activate
-          PROJECTS="$PROJECTS_JSON"
-          PATHS=()
-          while IFS= read -r dir; do
-            [ -z "$dir" ] && continue
-            PATHS+=("agents/$dir")
-          done < <(echo "$PROJECTS" | jq -r '.[]')
-          if [ ${#PATHS[@]} -gt 0 ]; then
-            ruff check "${PATHS[@]}"
-          fi
-
-      - name: Format check with ruff
-        env:
-          PROJECTS_JSON: ${{ needs.detect-changes.outputs.projects }}
-        run: |
-          source .venv/bin/activate
-          PROJECTS="$PROJECTS_JSON"
-          PATHS=()
-          while IFS= read -r dir; do
-            [ -z "$dir" ] && continue
-            PATHS+=("agents/$dir")
-          done < <(echo "$PROJECTS" | jq -r '.[]')
-          if [ ${#PATHS[@]} -gt 0 ]; then
-            ruff format --check "${PATHS[@]}"
-          fi
-
       - name: Install prettier
         run: npm install -g prettier@3.1.0
 
-      - name: Format check YAML with prettier
-        env:
-          PROJECTS_JSON: ${{ needs.detect-changes.outputs.projects }}
-        run: |
-          PROJECTS="$PROJECTS_JSON"
-          PATHS=()
-          while IFS= read -r dir; do
-            [ -z "$dir" ] && continue
-            PATHS+=("agents/$dir/**/*.{yaml,yml}")
-          done < <(echo "$PROJECTS" | jq -r '.[]')
-          if [ ${#PATHS[@]} -gt 0 ]; then
-            prettier --check "${PATHS[@]}"
-          fi
-
-      - name: Type check with ty
-        env:
-          PROJECTS_JSON: ${{ needs.detect-changes.outputs.projects }}
-        run: |
-          PROJECTS="$PROJECTS_JSON"
-          PATHS=()
-          while IFS= read -r dir; do
-            [ -z "$dir" ] && continue
-            PATHS+=("agents/$dir")
-          done < <(echo "$PROJECTS" | jq -r '.[]')
-          if [ ${#PATHS[@]} -gt 0 ]; then
-            uvx ty check "${PATHS[@]}"
-          fi
-
-      - name: Run tests
+      - name: Lint and test
         env:
           PROJECTS_JSON: ${{ needs.detect-changes.outputs.projects }}
         run: |
           source .venv/bin/activate
-          .github/scripts/run-tests.sh "$PROJECTS_JSON"
+          .github/scripts/lint-and-test.sh "$PROJECTS_JSON"
 
   merge-as-branches:
     needs: [detect-changes, lint-and-test]
@@ -202,233 +144,32 @@ jobs:
           echo "BRANCH_NAME=$ORIGINAL_BRANCH" >> "$GITHUB_OUTPUT"
           echo "PR_NUMBER=$PR_NUMBER" >> "$GITHUB_OUTPUT"
 
-      - name: Check Poly ADK version protection
+      - name: Deploy to Agent Studio
         env:
           PROJECT: ${{ matrix.project }}
-          BRANCH_NAME: ${{ steps.extract_branch.outputs.BRANCH_NAME }}
+          AS_BRANCH: ${{ steps.extract_branch.outputs.BRANCH_NAME }}
+          PR_NUMBER: ${{ steps.extract_branch.outputs.PR_NUMBER }}
+          BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          BASE_REF: ${{ github.event.merge_group.base_ref }}
+          HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          GH_TOKEN: ${{ github.token }}
+          RETRY_HINT: Re-queue the PR
         run: |
           source .venv/bin/activate
           # Only the branch/main tips are needed; keep the fetch shallow so it does
           # not unshallow the checkout and add latency per parallel merge job.
-          git fetch --depth=1 origin main "$BRANCH_NAME" 2>/dev/null || true
-          python .github/scripts/poly_adk_scripts/check_poly_adk_version_protection.py \
-            "[\"$PROJECT\"]" "$BRANCH_NAME" --branch-ref "origin/$BRANCH_NAME"
-
-      - name: Check if AS branch exists
-        id: check_branch
-        env:
-          PROJECT: ${{ matrix.project }}
-          AS_BRANCH: ${{ steps.extract_branch.outputs.BRANCH_NAME }}
-        run: |
-          source .venv/bin/activate
-          PROJECT_PATH="agents/${PROJECT}"
-          BRANCH_NAME="${AS_BRANCH}"
-
-          echo "Checking if branch $BRANCH_NAME exists for ${PROJECT}..."
-          set +e
-          python .github/scripts/poly_adk_scripts/check_branch_exists.py "$PROJECT_PATH" "$BRANCH_NAME"
-          EXIT_CODE=$?
-          set -e
-
-          if [ $EXIT_CODE -eq 0 ]; then
-            echo "Branch $BRANCH_NAME exists"
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          elif [ $EXIT_CODE -eq 1 ]; then
-            echo "Branch $BRANCH_NAME does not exist — checking if AS main is already in sync"
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "Error checking branch existence"
-            exit 1
-          fi
-
-      # Only needed when the branch is gone: if it still exists we push+merge
-      # unconditionally below regardless of whether main already matches.
-      - name: Check if AS main matches merged content
-        id: check_main_matches
-        if: steps.check_branch.outputs.exists == 'false'
-        env:
-          PROJECT: ${{ matrix.project }}
-        run: |
-          source .venv/bin/activate
-          PROJECT_PATH="agents/${PROJECT}"
-
-          set +e
-          python .github/scripts/poly_adk_scripts/check_as_parent_matches_local.py "$PROJECT_PATH"
-          EXIT_CODE=$?
-          set -e
-
-          if [ $EXIT_CODE -eq 0 ]; then
-            echo "AS main already matches merged(git main, git branch), nothing to do"
-            echo "matches=true" >> "$GITHUB_OUTPUT"
-          elif [ $EXIT_CODE -eq 1 ]; then
-            echo "AS main differs from merged(git main, git branch), pushing and merging"
-            echo "matches=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "Error checking AS main state"
-            exit 1
-          fi
-
-      # The sync check's format-aware fallback runs the repo's format hook
-      # (.github/scripts/format-project.sh) on the pulled projection before
-      # diffing; prettier is the only tool the hook needs that isn't already in
-      # the venv. Pin the same version sync_projects.yml installs — a mismatch
-      # shows up as false drift.
-      - name: Install prettier
-        if: steps.check_branch.outputs.exists == 'true' || steps.check_main_matches.outputs.matches == 'false'
-        run: npm install -g prettier@3.1.0
-
-      # The AS merge below can clobber Studio-side changes on the AS parent branch
-      # (the branch being merged into — main today) that a sync hasn't pulled back
-      # into git yet. Compare the AS parent against the merge-group base (parent
-      # git content, not the merged checkout) via a disposable worktree. "In sync"
-      # means a Sync Projects run would commit nothing: on a hash mismatch the
-      # script applies the sync's own pull+format pipeline to the worktree and
-      # asks git — so formatting-only divergence (which a sync can never clear)
-      # does not block the queue. A skip-as-sync-check label on the PR bypasses
-      # the check for known drift.
-      - name: Check AS parent branch is in sync with git
-        if: steps.check_branch.outputs.exists == 'true' || steps.check_main_matches.outputs.matches == 'false'
-        env:
-          BASE_SHA: ${{ github.event.merge_group.base_sha }}
-          BASE_REF: ${{ github.event.merge_group.base_ref }}
-          PROJECT: ${{ matrix.project }}
-          PR_NUMBER: ${{ steps.extract_branch.outputs.PR_NUMBER }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if gh pr view "$PR_NUMBER" --json labels -q '.labels[].name' | grep -qx "skip-as-sync-check"; then
-            echo "skip-as-sync-check label on PR #$PR_NUMBER — skipping AS parent sync check"
-            exit 0
-          fi
-
+          git fetch --depth=1 origin main "$AS_BRANCH" 2>/dev/null || true
+          export BRANCH_REF="origin/$AS_BRANCH"
           # Same-name convention as the rest of the pipeline: the AS parent branch
           # is named after the git branch this PR merges into.
-          PARENT_BRANCH="${BASE_REF#refs/heads/}"
-
-          if ! git cat-file -e "$BASE_SHA:agents/$PROJECT/project.yaml" 2>/dev/null; then
-            git fetch --depth=1 --no-tags origin "$BASE_SHA"
-          fi
-          if ! git cat-file -e "$BASE_SHA:agents/$PROJECT/project.yaml" 2>/dev/null; then
-            echo "agents/$PROJECT does not exist at the merge-group base (new project) — nothing to clobber"
-            exit 0
-          fi
-
-          source .venv/bin/activate
-          git worktree add "$RUNNER_TEMP/parent-check" "$BASE_SHA"
-
-          set +e
-          python .github/scripts/poly_adk_scripts/check_parent_in_sync.py \
-            "$RUNNER_TEMP/parent-check/agents/$PROJECT" --branch "$PARENT_BRANCH"
-          EXIT_CODE=$?
-          set -e
-
-          git worktree remove --force "$RUNNER_TEMP/parent-check"
-
-          if [ $EXIT_CODE -eq 1 ]; then
-            echo "::error::AS branch $PARENT_BRANCH is not in sync with git $PARENT_BRANCH for $PROJECT."
-            echo "Run the Sync Projects workflow for this project, then re-queue the PR."
-            echo "To bypass, add the skip-as-sync-check label and re-queue."
-            exit 1
-          elif [ $EXIT_CODE -ne 0 ]; then
-            echo "Error checking AS parent branch sync state for $PROJECT"
-            exit "$EXIT_CODE"
-          fi
-          echo "AS $PARENT_BRANCH is in sync with git $PARENT_BRANCH for $PROJECT"
-
-      # push_to_branch.py force-overwrites the whole project, so a checkout behind
-      # main for this project would revert those commits in Agent Studio. Runs
-      # immediately before the push to keep the race window minimal.
-      - name: Check merge-group base is still current for this project
-        if: steps.check_branch.outputs.exists == 'true' || steps.check_main_matches.outputs.matches == 'false'
-        env:
-          BASE_SHA: ${{ github.event.merge_group.base_sha }}
-          PROJECT: ${{ matrix.project }}
-        run: |
-          MAIN_SHA=$(git ls-remote origin refs/heads/main | cut -f1)
-          if [ -z "$MAIN_SHA" ]; then
-            echo "Could not resolve origin/main"
-            exit 1
-          fi
-
-          if [ "$MAIN_SHA" = "$BASE_SHA" ]; then
-            echo "main is still at the merge-group base ($BASE_SHA)"
-            exit 0
-          fi
-
-          git fetch --depth=1 --no-tags origin "$BASE_SHA" "$MAIN_SHA"
-
-          if git diff --quiet "$BASE_SHA" "$MAIN_SHA" -- "agents/$PROJECT"; then
-            echo "main advanced to $MAIN_SHA but left agents/$PROJECT untouched"
-            exit 0
-          fi
-
-          echo "agents/$PROJECT changed on main after this merge-group commit was built."
-          echo "  merge-group base: $BASE_SHA"
-          echo "  current main:     $MAIN_SHA"
-          echo ""
-          echo "  Pushing this checkout would revert those changes in Agent Studio."
-          echo "  Changed files:"
-          git diff --name-only "$BASE_SHA" "$MAIN_SHA" -- "agents/$PROJECT" | sed 's/^/    /'
-          echo ""
-          echo "  Re-queue the PR — the rebuilt entry will include them."
-          exit 1
-
-      - name: Push final state to AS branch
-        if: steps.check_branch.outputs.exists == 'true' || steps.check_main_matches.outputs.matches == 'false'
-        env:
-          PROJECT: ${{ matrix.project }}
-          AS_BRANCH: ${{ steps.extract_branch.outputs.BRANCH_NAME }}
-        run: |
-          source .venv/bin/activate
-          python .github/scripts/poly_adk_scripts/push_to_branch.py \
-            "agents/${PROJECT}" \
-            "${AS_BRANCH}"
-
-      - name: Merge AS branch to main
-        if: steps.check_branch.outputs.exists == 'true' || steps.check_main_matches.outputs.matches == 'false'
-        env:
-          HEAD_SHA: ${{ github.event.merge_group.head_sha }}
-          PROJECT: ${{ matrix.project }}
-          BRANCH_NAME: ${{ steps.extract_branch.outputs.BRANCH_NAME }}
-        run: |
-          source .venv/bin/activate
+          export PARENT_BRANCH="${BASE_REF#refs/heads/}"
           # Strip the project scope from the conventional-commit subject:
           # feat(project_id): message -> feat: message. The scope is a git-side
           # concern; inside Agent Studio the project is already implied.
-          #
-          # Inputs come from env, never spliced inline: the subject is
-          # contributor-controlled and must not reach the shell as code.
           MERGE_MESSAGE=$(git log -1 "$HEAD_SHA" --pretty=format:%s \
             | sed -E 's/^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)\([^)]+\)!?:/\1:/')
-          python .github/scripts/poly_adk_scripts/merge_branch.py \
-            "agents/$PROJECT" \
-            "$BRANCH_NAME" \
-            "$MERGE_MESSAGE"
-
-      - name: Verify AS branch deleted after merge
-        if: steps.check_branch.outputs.exists == 'true' || steps.check_main_matches.outputs.matches == 'false'
-        env:
-          PROJECT: ${{ matrix.project }}
-          AS_BRANCH: ${{ steps.extract_branch.outputs.BRANCH_NAME }}
-        run: |
-          source .venv/bin/activate
-          PROJECT_PATH="agents/${PROJECT}"
-          BRANCH_NAME="${AS_BRANCH}"
-
-          echo "Verifying branch $BRANCH_NAME is deleted for ${PROJECT}..."
-          set +e
-          python .github/scripts/poly_adk_scripts/check_branch_exists.py "$PROJECT_PATH" "$BRANCH_NAME"
-          EXIT_CODE=$?
-          set -e
-
-          if [ $EXIT_CODE -eq 0 ]; then
-            echo "Branch $BRANCH_NAME still exists after merge"
-            exit 1
-          elif [ $EXIT_CODE -eq 1 ]; then
-            echo "Branch $BRANCH_NAME successfully deleted"
-          else
-            echo "Error checking branch existence"
-            exit 1
-          fi
+          export MERGE_MESSAGE
+          .github/scripts/deploy-project.sh all
 
   deploy:
     name: Verify all CI jobs passed or were skipped

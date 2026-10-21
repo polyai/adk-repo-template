@@ -1,0 +1,321 @@
+name: Merge command
+run-name: "${{ github.event.comment.body == '/poly-merge' && format('/poly-merge #{0}', github.event.issue.number) || format('Comment on #{0}', github.event.issue.number) }}"
+
+# Comment `/poly-merge` on a PR to deploy its projects to Dialog Studio and then merge it, in
+# place of the merge queue. Needs DEPLOY_MODE=command; setup is in SETUP.md.
+#
+# Like the merge queue's Deploy, it lints, tests and deploys the PR merged into main. The
+# scripts come from main, because issue_comment runs this file from the default branch,
+# so a PR can't change how it deploys itself.
+
+on:
+  issue_comment:
+    types: [created]
+
+# One /poly-merge per PR at a time. Other comments each get their own group, so they never
+# replace a pending /poly-merge. A newer /poly-merge on the same PR replaces a pending one.
+concurrency:
+  group: ${{ github.event.comment.body == '/poly-merge' && format('merge-command-{0}', github.event.issue.number) || format('merge-comment-{0}', github.event.comment.id) }}
+  cancel-in-progress: false
+
+permissions: {}
+
+env:
+  PR_NUMBER: ${{ github.event.issue.number }}
+  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+jobs:
+  gate:
+    name: Check /poly-merge can run
+    if: github.event.issue.pull_request && github.event.comment.body == '/poly-merge' && vars.DEPLOY_MODE == 'command'
+    runs-on: ubuntu-latest
+    environment: merge-command
+    permissions:
+      contents: read
+    outputs:
+      proceed: ${{ steps.gate.outputs.proceed }}
+      head_sha: ${{ steps.gate.outputs.head_sha }}
+      head_ref: ${{ steps.gate.outputs.head_ref }}
+      projects: ${{ steps.gate.outputs.projects }}
+      ids: ${{ steps.gate.outputs.ids }}
+      deploy: ${{ steps.gate.outputs.deploy }}
+      as_merge_message: ${{ steps.gate.outputs.as_merge_message }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: Generate merge App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.MERGE_APP_ID }}
+          private-key: ${{ secrets.MERGE_APP_PRIVATE_KEY }}
+
+      - name: Check the PR, its approvals and its checks
+        id: gate
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          MODE: first
+          MERGE_APP_ID: ${{ secrets.MERGE_APP_ID }}
+          COMMENTER: ${{ github.event.comment.user.login }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: python .github/scripts/merge_command/gate.py
+
+  # Runs sharing a project go one at a time, in the order the comments arrived; runs on
+  # different projects go ahead in parallel. A run's projects are read from its PR's files,
+  # which covers every project its merge can deploy.
+  wait-turn:
+    name: Wait for earlier /poly-merge runs on the same projects
+    needs: gate
+    if: needs.gate.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    environment: merge-command
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    outputs:
+      proceed: ${{ steps.recheck.outputs.proceed }}
+      base_sha: ${{ steps.recheck.outputs.base_sha }}
+      merge_base: ${{ steps.recheck.outputs.merge_base }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: Wait for this run's turn
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROJECTS: ${{ needs.gate.outputs.projects }}
+        run: |
+          [ "$PROJECTS" = "[]" ] && exit 0
+          for _ in $(seq 180); do
+            RUNS=$(for status in requested queued pending waiting in_progress; do
+              gh run list -R "$GITHUB_REPOSITORY" -w merge-command.yml -s "$status" -L 100 --json databaseId,displayTitle \
+                --jq ".[] | select(.databaseId < $GITHUB_RUN_ID) | .displayTitle"
+            done)
+            BLOCKERS=()
+            while read -r pr; do
+              FILES=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$pr/files" --jq '.[].filename')
+              if awk -F/ 'NF >= 4 && $1 == "agents" { print $2 "/" $3 }' <<<"$FILES" | grep -qxF -f <(jq -r '.[]' <<<"$PROJECTS"); then
+                BLOCKERS+=("#$pr")
+              fi
+            done < <(sed -n 's|^/poly-merge #\([0-9]*\)$|\1|p' <<<"$RUNS" | sort -u)
+            [ ${#BLOCKERS[@]} -eq 0 ] && exit 0
+            echo "Waiting for /poly-merge on ${BLOCKERS[*]} (same projects)"
+            sleep 20
+          done
+          echo "::error::Timed out after 60 minutes waiting for an earlier /poly-merge"
+          exit 1
+
+      # Minted after the wait: installation tokens last an hour.
+      - name: Generate merge App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.MERGE_APP_ID }}
+          private-key: ${{ secrets.MERGE_APP_PRIVATE_KEY }}
+
+      - name: Check again before deploying
+        id: recheck
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          MODE: recheck
+          MERGE_APP_ID: ${{ secrets.MERGE_APP_ID }}
+          EXPECT_HEAD: ${{ needs.gate.outputs.head_sha }}
+          COMMENTER: ${{ github.event.comment.user.login }}
+        run: python .github/scripts/merge_command/gate.py
+
+  lint-and-test:
+    name: Lint and test the merge
+    needs: [gate, wait-turn]
+    if: needs.wait-turn.outputs.proceed == 'true' && needs.gate.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      CI: true
+      HEAD_SHA: ${{ needs.gate.outputs.head_sha }}
+      BASE_SHA: ${{ needs.wait-turn.outputs.base_sha }}
+      MERGE_BASE: ${{ needs.wait-turn.outputs.merge_base }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check out the merge
+        run: .github/scripts/merge_command/checkout-merge.sh "$RUNNER_TEMP/merged"
+
+      # No cache: these jobs run the PR's code under main's ref, whose cache every branch reads.
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          enable-cache: false
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        working-directory: ${{ runner.temp }}/merged
+        run: |
+          uv venv
+          source .venv/bin/activate
+          uv pip install -e ".[ci]"
+
+      - name: Install prettier
+        run: npm install -g prettier@3.1.0
+
+      - name: Lint and test
+        working-directory: ${{ runner.temp }}/merged
+        env:
+          PROJECTS_JSON: ${{ needs.gate.outputs.projects }}
+        run: |
+          source .venv/bin/activate
+          "$GITHUB_WORKSPACE/.github/scripts/lint-and-test.sh" "$PROJECTS_JSON"
+
+  # Phase 1 pushes every project to its AS branch; phase 2 merges them only once every
+  # push has succeeded and the PR head is confirmed unchanged. Both run the merge queue's
+  # steps (deploy-project.sh) on the same merge.
+  deploy-push:
+    name: Push ${{ matrix.project }} to Dialog Studio
+    needs: [gate, wait-turn, lint-and-test]
+    if: needs.lint-and-test.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    env: &deploy-env
+      POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
+      POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
+      POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
+      POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
+      POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
+      GH_TOKEN: ${{ github.token }}
+      HEAD_SHA: ${{ needs.gate.outputs.head_sha }}
+      BASE_SHA: ${{ needs.wait-turn.outputs.base_sha }}
+      MERGE_BASE: ${{ needs.wait-turn.outputs.merge_base }}
+      PROJECT: ${{ matrix.project }}
+      AS_BRANCH: ${{ needs.gate.outputs.head_ref }}
+      BRANCH_REF: ${{ needs.gate.outputs.head_sha }}
+      RETRY_HINT: Comment /poly-merge
+      MERGE_MESSAGE: ${{ needs.gate.outputs.as_merge_message }}
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJson(needs.gate.outputs.projects) }}
+    steps: &deploy-steps
+      - uses: actions/checkout@v7
+
+      # A re-run would deploy an old merge, so it is refused here and in finish.
+      - name: Check out the merge
+        run: |
+          [ "$GITHUB_RUN_ATTEMPT" = 1 ] || { echo "::error::Re-runs not supported. Comment /poly-merge"; exit 1; }
+          [ "$(git ls-remote origin "refs/pull/$PR_NUMBER/head" | cut -f1)" = "$HEAD_SHA" ] || { echo "::error::PR head moved. Comment /poly-merge"; exit 1; }
+          git fetch --depth=1 --no-tags origin main
+          .github/scripts/merge_command/checkout-merge.sh "$RUNNER_TEMP/merged"
+
+      # No cache: these jobs run the PR's code under main's ref, whose cache every branch reads.
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          enable-cache: false
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: Install ADK
+        run: |
+          uv venv
+          source .venv/bin/activate
+          uv pip install -e "$RUNNER_TEMP/merged"
+
+      - name: Deploy to Dialog Studio
+        run: |
+          source .venv/bin/activate
+          PROJECT_DIR="$RUNNER_TEMP/merged/agents/$PROJECT" .github/scripts/deploy-project.sh "${GITHUB_JOB#deploy-}"
+
+  verify-head:
+    name: Check the PR head hasn't moved
+    needs: [gate, deploy-push]
+    if: needs.deploy-push.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      moved: ${{ steps.verify.outputs.moved }}
+    steps:
+      - id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ needs.gate.outputs.head_sha }}
+        run: |
+          CURRENT=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .head.sha)
+          echo "moved=$([ "$CURRENT" = "$HEAD_SHA" ] && echo false || echo true)" >> "$GITHUB_OUTPUT"
+
+  deploy-merge:
+    name: Merge ${{ matrix.project }} in Dialog Studio
+    needs: [gate, wait-turn, verify-head]
+    if: needs.verify-head.outputs.moved == 'false'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    env: *deploy-env
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJson(needs.gate.outputs.projects) }}
+    steps: *deploy-steps
+
+  finish:
+    name: Merge in git and report
+    needs: [gate, wait-turn, lint-and-test, deploy-push, verify-head, deploy-merge]
+    if: always() && needs.gate.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    environment: merge-command
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/scripts/merge_command
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: Generate merge App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.MERGE_APP_ID }}
+          private-key: ${{ secrets.MERGE_APP_PRIVATE_KEY }}
+
+      - name: Merge and report
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ACTIONS_TOKEN: ${{ github.token }}
+          MERGE_APP_ID: ${{ secrets.MERGE_APP_ID }}
+          COMMENTER: ${{ github.event.comment.user.login }}
+          HEAD_SHA: ${{ needs.gate.outputs.head_sha }}
+          PROJECTS: ${{ needs.gate.outputs.projects }}
+          IDS: ${{ needs.gate.outputs.ids }}
+          DEPLOY: ${{ needs.gate.outputs.deploy }}
+          WAIT_RESULT: ${{ needs.wait-turn.result }}
+          RECHECK_PROCEED: ${{ needs.wait-turn.outputs.proceed }}
+          LINT_RESULT: ${{ needs.lint-and-test.result }}
+          PUSH_RESULT: ${{ needs.deploy-push.result }}
+          VERIFY_RESULT: ${{ needs.verify-head.result }}
+          HEAD_MOVED: ${{ needs.verify-head.outputs.moved }}
+          MERGE_RESULT: ${{ needs.deploy-merge.result }}
+        run: python .github/scripts/merge_command/finish.py
