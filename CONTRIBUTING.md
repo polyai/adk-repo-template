@@ -11,6 +11,7 @@
 .github/
   workflows/
     ci.yml                          # PR lint, test, push to AS branch
+    actionlint.yml                  # Lint workflows on PRs that change .github/
     deploy.yml                      # Merge queue: merge AS branch to AS main
     sync_projects.yml               # Pull from AS into git (AS dispatch, nightly, manual, ADK bump)
     delete-as-branch-on-pr-close.yml

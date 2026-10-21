@@ -1,0 +1,26 @@
+name: actionlint
+
+on:
+  pull_request:
+    paths:
+      - ".github/**"
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download actionlint
+        id: get-actionlint
+        run: bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12
+
+      # Lints the run: scripts with the runner's shellcheck too.
+      - name: Lint workflows
+        env:
+          ACTIONLINT: ${{ steps.get-actionlint.outputs.executable }}
+        run: '"$ACTIONLINT" -color'
