@@ -17,6 +17,7 @@ jobs:
     outputs:
       projects: ${{ steps.detect.outputs.projects }}
       has_projects: ${{ steps.detect.outputs.has_projects }}
+      github_changed: ${{ steps.detect.outputs.github_changed }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -45,6 +46,15 @@ jobs:
             echo "has_projects=true" >> "$GITHUB_OUTPUT"
           else
             echo "has_projects=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # A manual run, or a range git can't diff (a new branch's first push), lints anyway.
+          RANGE="$BASE_SHA..$HEAD_SHA"
+          [ -n "$MERGE_BASE_FLAG" ] && RANGE="$BASE_SHA...$HEAD_SHA"
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] || ! git diff --quiet "$RANGE" -- .github; then
+            echo "github_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "github_changed=false" >> "$GITHUB_OUTPUT"
           fi
 
   lint-and-test:
@@ -214,6 +224,8 @@ jobs:
             "$BRANCH_NAME"
 
   actionlint:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.github_changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
