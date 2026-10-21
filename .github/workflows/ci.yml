@@ -70,73 +70,15 @@ jobs:
           source .venv/bin/activate
           uv pip install -e ".[ci]"
 
-      - name: Lint with ruff
-        env:
-          PROJECTS_JSON: ${{ needs.detect-changes.outputs.projects }}
-        run: |
-          source .venv/bin/activate
-          PROJECTS="$PROJECTS_JSON"
-          PATHS=()
-          while IFS= read -r dir; do
-            [ -z "$dir" ] && continue
-            PATHS+=("agents/$dir")
-          done < <(echo "$PROJECTS" | jq -r '.[]')
-          if [ ${#PATHS[@]} -gt 0 ]; then
-            ruff check "${PATHS[@]}"
-          fi
-
-      - name: Format check with ruff
-        env:
-          PROJECTS_JSON: ${{ needs.detect-changes.outputs.projects }}
-        run: |
-          source .venv/bin/activate
-          PROJECTS="$PROJECTS_JSON"
-          PATHS=()
-          while IFS= read -r dir; do
-            [ -z "$dir" ] && continue
-            PATHS+=("agents/$dir")
-          done < <(echo "$PROJECTS" | jq -r '.[]')
-          if [ ${#PATHS[@]} -gt 0 ]; then
-            ruff format --check "${PATHS[@]}"
-          fi
-
       - name: Install prettier
         run: npm install -g prettier@3.1.0
 
-      - name: Format check YAML with prettier
-        env:
-          PROJECTS_JSON: ${{ needs.detect-changes.outputs.projects }}
-        run: |
-          PROJECTS="$PROJECTS_JSON"
-          PATHS=()
-          while IFS= read -r dir; do
-            [ -z "$dir" ] && continue
-            PATHS+=("agents/$dir/**/*.{yaml,yml}")
-          done < <(echo "$PROJECTS" | jq -r '.[]')
-          if [ ${#PATHS[@]} -gt 0 ]; then
-            prettier --check "${PATHS[@]}"
-          fi
-
-      - name: Type check with ty
-        env:
-          PROJECTS_JSON: ${{ needs.detect-changes.outputs.projects }}
-        run: |
-          PROJECTS="$PROJECTS_JSON"
-          PATHS=()
-          while IFS= read -r dir; do
-            [ -z "$dir" ] && continue
-            PATHS+=("agents/$dir")
-          done < <(echo "$PROJECTS" | jq -r '.[]')
-          if [ ${#PATHS[@]} -gt 0 ]; then
-            uvx ty check "${PATHS[@]}"
-          fi
-
-      - name: Run tests
+      - name: Lint and test
         env:
           PROJECTS_JSON: ${{ needs.detect-changes.outputs.projects }}
         run: |
           source .venv/bin/activate
-          .github/scripts/run-tests.sh "$PROJECTS_JSON"
+          .github/scripts/lint-and-test.sh "$PROJECTS_JSON"
 
   push-to-as-branch:
     needs: detect-changes

@@ -17,6 +17,8 @@
     delete-as-branch-on-commit-removes-project.yml
   scripts/
     detect-changed-dirs.sh          # Find which projects changed in a commit range
+    lint-and-test.sh                # Lint, format-check, type-check and test projects (CI and Deploy)
+    deploy-project.sh               # Push a project to its AS branch and merge it (Deploy)
     run-tests.sh                    # Run pytest for changed projects
     format-project.sh               # Formatting applied after every pull from AS
     pre-commit-format.sh            # Pre-commit hook: format-project.sh on staged projects
