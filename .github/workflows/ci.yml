@@ -138,7 +138,7 @@ jobs:
             "agents/${PROJECT}" \
             "${HEAD_REF}"
 
-      - name: Push to AS branch
+      - name: Push to DS branch
         env:
           POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
           POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
@@ -150,7 +150,7 @@ jobs:
         run: |
           source .venv/bin/activate
           BRANCH_NAME="${HEAD_REF}"
-          echo "Pushing agents/${PROJECT} to AS branch: $BRANCH_NAME"
+          echo "Pushing agents/${PROJECT} to DS branch: $BRANCH_NAME"
           python .github/scripts/poly_adk_scripts/push_to_branch.py \
             "agents/${PROJECT}" \
             "$BRANCH_NAME"

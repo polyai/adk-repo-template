@@ -2,7 +2,7 @@ repos:
   - repo: local
     hooks:
       # Formatting is format-project.sh and nothing else: the merge queue's sync
-      # check runs it on every Agent Studio pull, so any other formatter reads as drift.
+      # check runs it on every Dialog Studio pull, so any other formatter reads as drift.
       - id: format-project
         name: format projects (format-project.sh)
         entry: .github/scripts/pre-commit-format.sh

@@ -4,7 +4,7 @@ import time
 
 from load_project import load_local_agent_studio_project
 
-# Format: AS resource paths
+# Format: DS resource paths
 # * wildcard for that subfolder
 # ** wildcard for any subfolder
 SUPPORTED_CONFLICT_RESOLUTIONS = [
@@ -133,9 +133,9 @@ def _merge_with_retry(project, message: str, conflict_resolutions: list[dict] | 
 
 
 def merge_branch(base_path: str, branch_name: str, message: str) -> tuple[bool, str]:
-    """Merge a branch in Agent Studio.
+    """Merge a branch in Dialog Studio.
     Args:
-        base_path: The file path to the Agent Studio project.
+        base_path: The file path to the Dialog Studio project.
         branch_name: The branch name to merge.
         message: The message to use for the merge.
 
@@ -213,9 +213,9 @@ def merge_branch(base_path: str, branch_name: str, message: str) -> tuple[bool, 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Merge Poly ADK/Agent Studio project changes from the specified branch."
+        description="Merge Poly ADK/Dialog Studio project changes from the specified branch."
     )
-    parser.add_argument("base_path", type=str, help="The file path to the Agent Studio project.")
+    parser.add_argument("base_path", type=str, help="The file path to the Dialog Studio project.")
     parser.add_argument("branch_name", type=str, help="The branch name to merge from.")
     parser.add_argument("message", type=str, help="The message to use for the merge.")
 

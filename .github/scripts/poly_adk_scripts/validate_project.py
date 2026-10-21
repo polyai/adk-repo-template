@@ -5,10 +5,10 @@ from load_project import load_local_agent_studio_project
 
 
 def validate_project(base_path: str, branch_name: str) -> tuple[bool, list[str]]:
-    """Validate a local Agent Studio project on the specified branch.
+    """Validate a local Dialog Studio project on the specified branch.
 
     Args:
-        base_path: The file path to the Agent Studio project.
+        base_path: The file path to the Dialog Studio project.
         branch_name: The branch name to validate the project on.
 
     Returns:
@@ -24,12 +24,12 @@ def validate_project(base_path: str, branch_name: str) -> tuple[bool, list[str]]
 def main() -> None:
     """Main entry point for the validation script."""
     parser = argparse.ArgumentParser(
-        description="Validate local Agent Studio project on the specified branch."
+        description="Validate local Dialog Studio project on the specified branch."
     )
     parser.add_argument(
         "base_path",
         type=str,
-        help="The file path to the Agent Studio project.",
+        help="The file path to the Dialog Studio project.",
     )
     parser.add_argument(
         "branch_name",

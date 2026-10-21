@@ -2,7 +2,7 @@
 # THE definition of this repo's post-pull formatting pass, applied to one
 # project directory (the single argument): the ADK's own formatting
 # (poly format), then ruff and prettier. Called by sync_projects.yml and
-# check_parent_in_sync.py — "in sync with Agent Studio" means a pull followed
+# check_parent_in_sync.py — "in sync with Dialog Studio" means a pull followed
 # by this script changes nothing, so any formatter change must happen here and
 # nowhere else, or the merge-time sync check reports formatting as drift.
 #

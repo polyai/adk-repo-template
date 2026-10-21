@@ -57,9 +57,9 @@ def _sync_would_change_git(
 def check_parent_in_sync(
     base_path: str, branch: str = "main", format_hook: Path = DEFAULT_FORMAT_HOOK
 ) -> int:
-    """Check whether an Agent Studio branch is in sync with the checkout at base_path.
+    """Check whether an Dialog Studio branch is in sync with the checkout at base_path.
 
-    branch is the AS branch being merged into (the parent — today always main).
+    branch is the DS branch being merged into (the parent — today always main).
     base_path must point at the project dir inside a DISPOSABLE checkout of the
     matching parent git ref (e.g. a worktree of the merge-group base) — NOT the
     merged PR content, and not a working tree anyone keeps: the format-aware
@@ -70,7 +70,7 @@ def check_parent_in_sync(
     registers), and on a mismatch the sync pipeline itself — pull, then the
     repo's format hook — is applied to the checkout and the result diffed with
     git. Content that only differs by formatting (e.g. a Python function ruff
-    reformatted on a previous sync, never pushed back to AS) is therefore not
+    reformatted on a previous sync, never pushed back to DS) is therefore not
     drift: the Sync Projects run the failure message prescribes would be a
     no-op and could never unblock the merge.
 
@@ -83,7 +83,7 @@ def check_parent_in_sync(
 
         conflicts, modified_files, new_files, deleted_files = project.project_status()
         if not any([conflicts, modified_files, new_files, deleted_files]):
-            print(f"✓ AS {branch} is in sync with {base_path}")
+            print(f"✓ DS {branch} is in sync with {base_path}")
             return EXIT_IN_SYNC
 
         print("Resource hashes differ, checking whether a sync would commit anything:")
@@ -98,11 +98,11 @@ def check_parent_in_sync(
 
         if not _sync_would_change_git(project, base_path, projection, format_hook):
             print(
-                f"✓ AS {branch} matches {base_path} after formatting (formatting-only divergence)"
+                f"✓ DS {branch} matches {base_path} after formatting (formatting-only divergence)"
             )
             return EXIT_IN_SYNC
 
-        print(f"✗ AS {branch} differs from {base_path}")
+        print(f"✗ DS {branch} differs from {base_path}")
         return EXIT_OUT_OF_SYNC
     except Exception as e:
         print(f"Error checking sync state: {e}", file=sys.stderr)
@@ -111,7 +111,7 @@ def check_parent_in_sync(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Check whether an Agent Studio branch is in sync with a git checkout "
+        description="Check whether an Dialog Studio branch is in sync with a git checkout "
         "of the parent branch, ignoring divergence a sync's formatting pass would erase."
     )
     parser.add_argument(
@@ -124,7 +124,7 @@ if __name__ == "__main__":
         "--branch",
         type=str,
         default="main",
-        help="Agent Studio parent branch being merged into (default: main).",
+        help="Dialog Studio parent branch being merged into (default: main).",
     )
     parser.add_argument(
         "--format-hook",

@@ -27,7 +27,7 @@ on:
     paths:
       - "pyproject.toml"
 
-# A newer dispatch for a project cancels the older run: it pulls the latest Agent Studio state anyway.
+# A newer dispatch for a project cancels the older run: it pulls the latest Dialog Studio state anyway.
 concurrency:
   group: ${{ github.event_name == 'repository_dispatch' && format('project-sync-{0}', github.event.client_payload.project_id || github.run_id) || format('sync-{0}', github.run_id) }}
   cancel-in-progress: true
@@ -56,7 +56,7 @@ jobs:
       - name: Read workflow inputs or dispatch payload
         id: resolve
         env:
-          # Dispatches nest the Agent Studio deployment under client_payload.deployment
+          # Dispatches nest the Dialog Studio deployment under client_payload.deployment
           # so new deployment fields can't push client_payload past GitHub's 10 top-level properties.
           EVENT_NAME: ${{ github.event_name }}
           ACCOUNT_ID: ${{ inputs.account_id || github.event.client_payload.account_id }}
@@ -315,7 +315,7 @@ jobs:
       - name: Install prettier
         run: npm install -g prettier@3.1.0
 
-      - name: Pull from Agent Studio
+      - name: Pull from Dialog Studio
         env:
           POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
           POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
@@ -329,7 +329,7 @@ jobs:
         run: |
           source .venv/bin/activate
           PROJECT_PATH="agents/${PROJECT}"
-          echo "Pulling $PROJECT_PATH from Agent Studio..."
+          echo "Pulling $PROJECT_PATH from Dialog Studio..."
 
           PULL_ARGS=""
           if [ "$FORCE_PULL" = "true" ]; then
@@ -341,7 +341,7 @@ jobs:
           PULL_EXIT_CODE=$?
           set -e
 
-          # Exit 2 means Agent Studio main already matches disk — not a failure.
+          # Exit 2 means Dialog Studio main already matches disk — not a failure.
           if [ $PULL_EXIT_CODE -eq 1 ]; then
             exit 1
           fi
@@ -389,7 +389,7 @@ jobs:
 
           echo "Changes detected, formatting and committing..."
 
-          # The repo's formatting pass — shared with the AS parent sync check in
+          # The repo's formatting pass — shared with the DS parent sync check in
           # deploy.yml, which treats "a sync would commit nothing" as in sync.
           ./.github/scripts/format-project.sh "$PROJECT_PATH"
           git add "$PROJECT_PATH"
@@ -407,7 +407,7 @@ jobs:
           if [ -n "$INPUT_DEPLOYMENT_MESSAGE" ]; then
             SUBJECT_BODY="$INPUT_DEPLOYMENT_MESSAGE"
           else
-            SUBJECT_BODY="Sync with Agent Studio"
+            SUBJECT_BODY="Sync with Dialog Studio"
           fi
 
           # Rollback syncs are labeled revert() so they stand out from

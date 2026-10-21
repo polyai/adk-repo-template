@@ -9,10 +9,10 @@ COLOUR_END = "\033[0m"
 
 
 def push_to_branch(base_path: str, branch_name: str) -> tuple[bool, str]:
-    """Push changes to a branch in Agent Studio.
+    """Push changes to a branch in Dialog Studio.
 
     Args:
-        base_path: The file path to the Agent Studio project.
+        base_path: The file path to the Dialog Studio project.
         branch_name: The branch name to push changes to.
 
     Returns:
@@ -48,7 +48,7 @@ def push_to_branch(base_path: str, branch_name: str) -> tuple[bool, str]:
         return False, "No changes detected"
 
     # Only create the branch once we know there is something to push, so PRs that
-    # touch no project resources don't leave empty branches behind in Agent Studio.
+    # touch no project resources don't leave empty branches behind in Dialog Studio.
     if project.branch_id == "main":
         project.create_branch(branch_name)
         project.load_project()
@@ -62,9 +62,9 @@ def push_to_branch(base_path: str, branch_name: str) -> tuple[bool, str]:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Push local Agent Studio project changes to the specified branch."
+        description="Push local Dialog Studio project changes to the specified branch."
     )
-    parser.add_argument("base_path", type=str, help="The file path to the Agent Studio project.")
+    parser.add_argument("base_path", type=str, help="The file path to the Dialog Studio project.")
     parser.add_argument("branch_name", type=str, help="The branch name to push changes to.")
     args = parser.parse_args()
     success, message = push_to_branch(args.base_path, args.branch_name)

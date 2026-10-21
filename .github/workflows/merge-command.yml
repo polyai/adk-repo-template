@@ -182,7 +182,7 @@ jobs:
           source .venv/bin/activate
           "$GITHUB_WORKSPACE/.github/scripts/lint-and-test.sh" "$PROJECTS_JSON"
 
-  # Phase 1 pushes every project to its AS branch; phase 2 merges them only once every
+  # Phase 1 pushes every project to its DS branch; phase 2 merges them only once every
   # push has succeeded and the PR head is confirmed unchanged. Both run the merge queue's
   # steps (deploy-project.sh) on the same merge.
   deploy-push:

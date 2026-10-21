@@ -1,4 +1,4 @@
-"""Delete an Agent Studio branch."""
+"""Delete an Dialog Studio branch."""
 
 import argparse
 import sys
@@ -7,10 +7,10 @@ from poly.project import AgentStudioProject
 
 
 def delete_branch(base_path: str, branch_name: str) -> tuple[bool, str]:
-    """Delete a branch in Agent Studio if it exists.
+    """Delete a branch in Dialog Studio if it exists.
 
     Args:
-        base_path: The file path to the Agent Studio project.
+        base_path: The file path to the Dialog Studio project.
         branch_name: The branch name to delete.
 
     Returns:
@@ -33,12 +33,12 @@ def delete_branch(base_path: str, branch_name: str) -> tuple[bool, str]:
 def main() -> None:
     """Main entry point for the delete branch script."""
     parser = argparse.ArgumentParser(
-        description="Delete an Agent Studio branch (e.g. when a PR is closed)."
+        description="Delete an Dialog Studio branch (e.g. when a PR is closed)."
     )
     parser.add_argument(
         "base_path",
         type=str,
-        help="The file path to the Agent Studio project.",
+        help="The file path to the Dialog Studio project.",
     )
     parser.add_argument(
         "branch_name",
