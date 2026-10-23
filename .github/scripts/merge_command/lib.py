@@ -41,9 +41,11 @@ STUDIO_ONLY = "Success on Studio, Failure on Git"
 FAILURE = "Failure"
 
 
-def report(pr: int, merge: str, reasons: str | list[str] = (), next_step: str = "") -> None:
+def report(
+    pr: int, merge: str, reasons: str | list[str] | None = None, next_step: str = ""
+) -> None:
     """Post the run's result on the PR as a short list of fields."""
-    reasons = [reasons] if isinstance(reasons, str) else list(reasons)
+    reasons = [reasons] if isinstance(reasons, str) else list(reasons or [])
     lines = [f"**Merge:** {merge}"]
     if len(reasons) == 1:
         lines.append(f"**Reason:** {reasons[0]}")

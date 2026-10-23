@@ -10,8 +10,8 @@
 #   PROJECT_DIR    the project's files to deploy (default agents/$PROJECT)
 #   AS_BRANCH      the AS branch, named after the git branch
 #   PARENT_BRANCH  the AS and git branch merged into (default main)
-#   push:  BASE_SHA     the git parent-branch commit PROJECT_DIR was built on
-#          BRANCH_REF   a git ref holding the branch's pyproject.toml
+#   BASE_SHA       the git parent-branch commit PROJECT_DIR was built on
+#   push:  BRANCH_REF   a git ref holding the branch's pyproject.toml
 #          PR_NUMBER    the PR, to read its skip-as-sync-check label (needs GH_TOKEN)
 #          RETRY_HINT   what to do after fixing a failure, e.g. "Re-queue the PR"
 #   merge: MERGE_MESSAGE
@@ -31,6 +31,36 @@ check() {
     exit 1
   fi
   echo "$code"
+}
+
+# push_to_branch.py force-overwrites the whole project, and the AS merge resolves conflicts
+# in the branch's favour, so content built on a base that is behind the parent branch for
+# this project would revert those commits in Agent Studio. Runs right before the push and
+# again right before the merge, to keep the race windows minimal.
+check_base_current() {
+  local parent_sha
+  parent_sha=$(git ls-remote origin "refs/heads/$PARENT_BRANCH" | cut -f1)
+  if [ -z "$parent_sha" ]; then
+    echo "Could not resolve origin/$PARENT_BRANCH"
+    exit 1
+  fi
+  if [ "$parent_sha" = "$BASE_SHA" ]; then
+    return
+  fi
+  git fetch --depth=1 --no-tags origin "$BASE_SHA" "$parent_sha"
+  if ! git diff --quiet "$BASE_SHA" "$parent_sha" -- "agents/$PROJECT"; then
+    echo "agents/$PROJECT changed on $PARENT_BRANCH after this deploy was built."
+    echo "  base:            $BASE_SHA"
+    echo "  current $PARENT_BRANCH: $parent_sha"
+    echo ""
+    echo "  Deploying this checkout would revert those changes in Agent Studio."
+    echo "  Changed files:"
+    git diff --name-only "$BASE_SHA" "$parent_sha" -- "agents/$PROJECT" | sed 's/^/    /'
+    echo ""
+    echo "  $RETRY_HINT: the rebuilt deploy will include them."
+    exit 1
+  fi
+  echo "$PARENT_BRANCH advanced to $parent_sha but left agents/$PROJECT untouched"
 }
 
 push() {
@@ -81,32 +111,7 @@ push() {
     fi
   fi
 
-  # push_to_branch.py force-overwrites the whole project, so content built on a base that
-  # is behind the parent branch for this project would revert those commits in Agent
-  # Studio. Runs immediately before the push to keep the race window minimal.
-  local parent_sha
-  parent_sha=$(git ls-remote origin "refs/heads/$PARENT_BRANCH" | cut -f1)
-  if [ -z "$parent_sha" ]; then
-    echo "Could not resolve origin/$PARENT_BRANCH"
-    exit 1
-  fi
-  if [ "$parent_sha" != "$BASE_SHA" ]; then
-    git fetch --depth=1 --no-tags origin "$BASE_SHA" "$parent_sha"
-    if ! git diff --quiet "$BASE_SHA" "$parent_sha" -- "agents/$PROJECT"; then
-      echo "agents/$PROJECT changed on $PARENT_BRANCH after this deploy was built."
-      echo "  base:            $BASE_SHA"
-      echo "  current $PARENT_BRANCH: $parent_sha"
-      echo ""
-      echo "  Pushing this checkout would revert those changes in Agent Studio."
-      echo "  Changed files:"
-      git diff --name-only "$BASE_SHA" "$parent_sha" -- "agents/$PROJECT" | sed 's/^/    /'
-      echo ""
-      echo "  $RETRY_HINT: the rebuilt deploy will include them."
-      exit 1
-    fi
-    echo "$PARENT_BRANCH advanced to $parent_sha but left agents/$PROJECT untouched"
-  fi
-
+  check_base_current
   python "$SCRIPTS/push_to_branch.py" "$PROJECT_DIR" "$AS_BRANCH"
 }
 
@@ -117,6 +122,7 @@ merge() {
     echo "Nothing to merge for $PROJECT: AS $PARENT_BRANCH already matches"
     return
   fi
+  check_base_current
   python "$SCRIPTS/merge_branch.py" "$PROJECT_DIR" "$AS_BRANCH" "$MERGE_MESSAGE"
   missing=$(check "$SCRIPTS/check_branch_exists.py" "$PROJECT_DIR" "$AS_BRANCH")
   if [ "$missing" = 0 ]; then
