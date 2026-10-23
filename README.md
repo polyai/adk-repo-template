@@ -91,17 +91,13 @@ In VS Code, select the `.venv` interpreter: `Cmd+Shift+P` > **"Python: Select In
 
 ### Making changes
 
-1. Create a git branch. Then, from the project directory, create the Dialog Studio branch with the same name (from main). Your files are kept:
+1. Create a git branch. Then, from the project directory, switch the ADK to the Dialog Studio branch with the same name. This creates it from main if it doesn't exist yet, and keeps your files:
 
    ```bash
-   poly branch create $(git branch --show-current)
+   poly branch switch "$(git branch --show-current)" --create --from main --keep-files
    ```
 
-   The ADK tracks its Dialog Studio branch separately from git, so switching git branches doesn't move it. Check it with `poly branch current`. For a branch CI has already pushed, switch to it instead. This loads the branch's state into the project files:
-
-   ```bash
-   poly branch switch $(git branch --show-current)
-   ```
+   The ADK tracks its Dialog Studio branch separately from git, so switching git branches doesn't move it. Run the same command after every `git switch`. `poly branch current` shows the branch the ADK is on.
 
 2. Make your changes and commit them.
 3. Open a PR. CI runs lint and tests, then pushes your changes to the Dialog Studio branch.
@@ -199,14 +195,14 @@ This syncs `.github/workflows/`, `.github/scripts/`, `.github/assets/` and `.pre
 
 | Symptom | Cause |
 | ------- | ----- |
-| `poly push` or `poly chat` uses the wrong Dialog Studio branch | The ADK's branch doesn't follow git. Check `poly branch current`, then create or switch to the branch named after your git branch (see [Making changes](#making-changes)). |
+| `poly push` or `poly chat` uses the wrong Dialog Studio branch | The ADK's branch doesn't follow git. Run `poly branch switch "$(git branch --show-current)" --create --from main --keep-files` (see [Making changes](#making-changes)). |
 | CI fails ruff or prettier on a newly added project | It was committed straight after `poly init`. Format it with the hooks as in [Adding a project](#adding-a-project). |
 | A PR fails in the merge queue or `/poly-merge` with `DS branch main is not in sync with git main` | Dialog Studio has changes the repo doesn't. Run Sync Projects for the project, then re-queue or comment `/poly-merge` again. To merge anyway and overwrite the Dialog Studio changes, add the `skip-as-sync-check` label first. |
 | `/poly-merge` does nothing | The repo variable `DEPLOY_MODE` isn't `command`, or the comment isn't exactly `/poly-merge`. |
 | A PR waits for `poly/deploy` | It changes a project: comment `/poly-merge`. If the check is missing, the PR was last pushed before `/poly-merge` was set up: push a commit. |
 | Publishing starts no run | GitHub rejected the dispatch, usually because the token can't see the repo (its resource owner isn't the organisation, or the repo isn't selected) or the secret is missing, misnamed, or lacks the `Bearer ` prefix or project access. See [Dialog Studio webhooks](SETUP.md#5-dialog-studio-webhooks). |
 | Sync Projects fails at the GitHub App token step with `Invalid keyData` | `GH_APP_PRIVATE_KEY` isn't a valid key. Set it from the `.pem` file (see [GitHub App](SETUP.md#2-github-app)). |
-| Sync Projects fails at find-projects with `No projects found` | The project isn't on `main` yet, or the dispatch's `account_id`/`project_id` don't match its `project.yaml`. |
+| Sync Projects fails at find-projects with `No projects found matching filters` | No project on `main` has the account or project ID it was given. The project isn't on `main` yet, or the ID from the dispatch or the manual run doesn't match its `project.yaml`. The log prints the IDs it looked for. |
 
 ## License
 
