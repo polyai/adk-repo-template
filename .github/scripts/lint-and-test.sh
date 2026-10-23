@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Lint, format-check, type-check and test Agent Studio projects.
+# Lint, format-check, type-check and test Dialog Studio projects.
 #
 # Usage: lint-and-test.sh '<projects json>'   e.g. '["account/project"]'
 # Run from the root of the checkout to check, with its virtual environment active and

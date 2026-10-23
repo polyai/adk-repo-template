@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Pre-commit entry point: runs format-project.sh on every project with a staged
-# file, so a commit gets exactly the formatting a sync from Agent Studio applies.
+# file, so a commit gets exactly the formatting a sync from Dialog Studio applies.
 set -euo pipefail
 
 script_dir=$(cd "$(dirname "$0")" && pwd)

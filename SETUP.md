@@ -38,7 +38,7 @@ Sync Projects pushes to `main` with a GitHub App token, so its commits can bypas
 
 ## 3. ADK keys
 
-Add repo secrets with Agent Studio API keys for CI. Generate keys at your region's Agent Studio settings page (for example `https://studio.us.poly.ai/settings/account`). Changes CI makes are attributed to the key's owner.
+Add repo secrets with Dialog Studio API keys for CI. Generate keys at your region's Dialog Studio settings page (for example `https://studio.us.poly.ai/settings/account`). Changes CI makes are attributed to the key's owner.
 
 - For a single region: `POLY_ADK_KEY`.
 - For several regions: `POLY_ADK_KEY_US`, `POLY_ADK_KEY_UK`, `POLY_ADK_KEY_EUW` and `POLY_ADK_KEY_STUDIO`, as needed.
@@ -62,7 +62,7 @@ CI passes these to the ADK as environment variables. For a project, the ADK uses
   - **Restrict deletions.**
   - **Block force pushes.**
   - **Require a pull request before merging**, with allowed merge methods set to **Squash** only.
-  - **Require status checks to pass**, with the check **`Verify all CI jobs passed or were skipped`** from GitHub Actions. CI reports this check on the pull request and Deploy reports it in the merge queue, so this one check gates both. Without it, the queue merges without waiting for Deploy to merge the Agent Studio branch.
+  - **Require status checks to pass**, with the check **`Verify all CI jobs passed or were skipped`** from GitHub Actions. CI reports this check on the pull request and Deploy reports it in the merge queue, so this one check gates both. Without it, the queue merges without waiting for Deploy to merge the Dialog Studio branch.
   - **Require merge queue**, with merge method **Squash**, build concurrency **1**, minimum and maximum group size **1**, and **Only merge non-failing pull requests**. Leave this out if you use `/poly-merge` instead (below).
 
 GitHub suggests check names from recent runs. If it isn't suggested yet, type the name exactly.
@@ -87,9 +87,9 @@ To use `/poly-merge`:
 
 Each PR head then gets a `poly/deploy` check. It waits for `/poly-merge` when the PR changes a project, and passes when it doesn't. PRs opened before the setup need a new push to get it.
 
-## 5. Agent Studio webhooks
+## 5. Dialog Studio webhooks
 
-Each project needs a webhook so that publishing in Agent Studio starts a sync. Repeat these steps for every project, including ones added later.
+Each project needs a webhook so that publishing in Dialog Studio starts a sync. Repeat these steps for every project, including ones added later.
 
 **Create a GitHub token.** Create a [fine-grained personal access token](https://github.com/settings/personal-access-tokens/new) with:
 
@@ -99,7 +99,7 @@ Each project needs a webhook so that publishing in Agent Studio starts a sync. R
 
 Syncs stop without an error when the token expires, so note the expiry date.
 
-**Store it in Agent Studio.** In the project's workspace, create a secret:
+**Store it in Dialog Studio.** In the project's workspace, create a secret:
 
 | Field          | Value                                    |
 | -------------- | ---------------------------------------- |
@@ -147,12 +147,12 @@ Syncs stop without an error when the token expires, so note the expiry date.
 }
 ```
 
-Merge it through a PR. Once Deploy publishes it, each publish or rollback in Agent Studio starts a Sync Projects run, which pushes an `Update from AS` commit to `main`. If a second dispatch for the same project arrives while a sync is running, it cancels the first and syncs both changes.
+Merge it through a PR. Once Deploy publishes it, each publish or rollback in Dialog Studio starts a Sync Projects run, which pushes an `Update from AS` commit to `main`. If a second dispatch for the same project arrives while a sync is running, it cancels the first and syncs both changes.
 
 ## 6. Check it works
 
-1. Open a PR that changes a project. CI should push to an Agent Studio branch of the same name.
-2. Merge it through the merge queue, or comment `/poly-merge`. That should merge the branch into Agent Studio main, then merge the PR.
-3. Publish a change in Agent Studio. Sync Projects should push an `Update from AS` commit to `main`.
+1. Open a PR that changes a project. CI should push to an Dialog Studio branch of the same name.
+2. Merge it through the merge queue, or comment `/poly-merge`. That should merge the branch into Dialog Studio main, then merge the PR.
+3. Publish a change in Dialog Studio. Sync Projects should push an `Update from AS` commit to `main`.
 
 If a step fails, see [Troubleshooting](README.md#troubleshooting).

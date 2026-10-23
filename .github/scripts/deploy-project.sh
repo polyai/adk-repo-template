@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Deploy one project to Agent Studio: push it to its AS branch, then merge that branch
-# into the AS parent branch.
+# Deploy one project to Dialog Studio: push it to its DS branch, then merge that branch
+# into the DS parent branch.
 #
 # Usage: deploy-project.sh push|merge|all
 # Run from the repo root, with the ADK's virtual environment active.
@@ -8,8 +8,8 @@
 # Env:
 #   PROJECT        account/project
 #   PROJECT_DIR    the project's files to deploy (default agents/$PROJECT)
-#   AS_BRANCH      the AS branch, named after the git branch
-#   PARENT_BRANCH  the AS and git branch merged into (default main)
+#   AS_BRANCH      the DS branch, named after the git branch
+#   PARENT_BRANCH  the DS and git branch merged into (default main)
 #   BASE_SHA       the git parent-branch commit PROJECT_DIR was built on
 #   push:  BRANCH_REF   a git ref holding the branch's pyproject.toml
 #          PR_NUMBER    the PR, to read its skip-as-sync-check label (needs GH_TOKEN)
@@ -33,9 +33,9 @@ check() {
   echo "$code"
 }
 
-# push_to_branch.py force-overwrites the whole project, and the AS merge resolves conflicts
+# push_to_branch.py force-overwrites the whole project, and the DS merge resolves conflicts
 # in the branch's favour, so content built on a base that is behind the parent branch for
-# this project would revert those commits in Agent Studio. Runs right before the push and
+# this project would revert those commits in Dialog Studio. Runs right before the push and
 # again right before the merge, to keep the race windows minimal.
 check_base_current() {
   local parent_sha
@@ -53,7 +53,7 @@ check_base_current() {
     echo "  base:            $BASE_SHA"
     echo "  current $PARENT_BRANCH: $parent_sha"
     echo ""
-    echo "  Deploying this checkout would revert those changes in Agent Studio."
+    echo "  Deploying this checkout would revert those changes in Dialog Studio."
     echo "  Changed files:"
     git diff --name-only "$BASE_SHA" "$parent_sha" -- "agents/$PROJECT" | sed 's/^/    /'
     echo ""
@@ -70,22 +70,22 @@ push() {
   local missing matches
   missing=$(check "$SCRIPTS/check_branch_exists.py" "$PROJECT_DIR" "$AS_BRANCH")
   if [ "$missing" = 1 ]; then
-    echo "Branch $AS_BRANCH does not exist — checking if AS $PARENT_BRANCH is already in sync"
+    echo "Branch $AS_BRANCH does not exist — checking if DS $PARENT_BRANCH is already in sync"
     matches=$(check "$SCRIPTS/check_as_parent_matches_local.py" "$PROJECT_DIR")
     if [ "$matches" = 0 ]; then
-      echo "AS $PARENT_BRANCH already matches merged(git $PARENT_BRANCH, git branch), nothing to do"
+      echo "DS $PARENT_BRANCH already matches merged(git $PARENT_BRANCH, git branch), nothing to do"
       return
     fi
   fi
 
-  # The AS merge can clobber Studio-side changes on the AS parent branch that a sync
-  # hasn't pulled back into git yet. Compare the AS parent against the git base commit via
+  # The DS merge can clobber Studio-side changes on the DS parent branch that a sync
+  # hasn't pulled back into git yet. Compare the DS parent against the git base commit via
   # a disposable worktree. "In sync" means a Sync Projects run would commit nothing: on a
   # hash mismatch the script applies the sync's own pull+format pipeline to the worktree
   # and asks git, so formatting-only divergence does not block. A skip-as-sync-check
   # label on the PR bypasses the check for known drift.
   if [ -n "${PR_NUMBER:-}" ] && gh pr view "$PR_NUMBER" --json labels -q '.labels[].name' | grep -qx "skip-as-sync-check"; then
-    echo "skip-as-sync-check label on PR #$PR_NUMBER — skipping AS parent sync check"
+    echo "skip-as-sync-check label on PR #$PR_NUMBER — skipping DS parent sync check"
   else
     if ! git cat-file -e "$BASE_SHA:agents/$PROJECT/project.yaml" 2>/dev/null; then
       git fetch --depth=1 --no-tags origin "$BASE_SHA"
@@ -100,12 +100,12 @@ push() {
       code=$(check "$SCRIPTS/check_parent_in_sync.py" "$worktree/agents/$PROJECT" --branch "$PARENT_BRANCH")
       git worktree remove --force "$worktree"
       if [ "$code" = 1 ]; then
-        echo "::error::AS branch $PARENT_BRANCH is not in sync with git $PARENT_BRANCH for $PROJECT."
+        echo "::error::DS branch $PARENT_BRANCH is not in sync with git $PARENT_BRANCH for $PROJECT."
         echo "Run the Sync Projects workflow for this project. $RETRY_HINT."
         echo "To bypass, add the skip-as-sync-check label. $RETRY_HINT."
         exit 1
       fi
-      echo "AS $PARENT_BRANCH is in sync with git $PARENT_BRANCH for $PROJECT"
+      echo "DS $PARENT_BRANCH is in sync with git $PARENT_BRANCH for $PROJECT"
     else
       echo "agents/$PROJECT does not exist at the base commit (new project) — nothing to clobber"
     fi
@@ -119,7 +119,7 @@ merge() {
   local missing
   missing=$(check "$SCRIPTS/check_branch_exists.py" "$PROJECT_DIR" "$AS_BRANCH")
   if [ "$missing" = 1 ]; then
-    echo "Nothing to merge for $PROJECT: AS $PARENT_BRANCH already matches"
+    echo "Nothing to merge for $PROJECT: DS $PARENT_BRANCH already matches"
     return
   fi
   check_base_current

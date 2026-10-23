@@ -1,4 +1,4 @@
-name: Delete Agent Studio branch on PR close
+name: Delete Dialog Studio branch on PR close
 
 on:
   pull_request:
@@ -49,7 +49,7 @@ jobs:
           fi
 
   delete-as-branches:
-    name: Delete AS branches
+    name: Delete DS branches
     needs: detect
     runs-on: ubuntu-latest
     if: needs.detect.outputs.has_projects == 'true'
@@ -77,7 +77,7 @@ jobs:
           source .venv/bin/activate
           uv pip install -e .
 
-      - name: Delete AS branch
+      - name: Delete DS branch
         env:
           POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
           POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
@@ -89,7 +89,7 @@ jobs:
         run: |
           source .venv/bin/activate
           BRANCH_NAME="${AS_BRANCH}"
-          echo "Deleting AS branch $BRANCH_NAME for ${PROJECT}..."
+          echo "Deleting DS branch $BRANCH_NAME for ${PROJECT}..."
           python .github/scripts/poly_adk_scripts/delete_branch.py \
             "agents/${PROJECT}" \
             "$BRANCH_NAME"

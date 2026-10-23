@@ -12,17 +12,17 @@
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Develop with Claude Code](https://img.shields.io/badge/Develop%20with-Claude%20Code-DC9E63?logo=claude)](https://claude.ai/download)
 
-Template repository for ADK-managed agent projects. Each project under `agents/` is an Agent Studio project, managed with the [PolyAI ADK](https://github.com/polyai/adk). Pull requests push changes to Agent Studio, and the merge queue, or a `/poly-merge` comment, merges them there. A sync workflow brings changes made in Agent Studio back into the repo.
+Template repository for ADK-managed agent projects. Each project under `agents/` is an Dialog Studio project, managed with the [PolyAI ADK](https://github.com/polyai/adk). Pull requests push changes to Dialog Studio, and the merge queue, or a `/poly-merge` comment, merges them there. A sync workflow brings changes made in Dialog Studio back into the repo.
 
 New to PolyAI? Sign up at [studio.poly.ai](https://studio.poly.ai) and start free.
 
 **[Use this template](https://github.com/new?template_name=adk-repo-template&template_owner=polyai)** · **[Set up a new repo](SETUP.md)** · **[ADK documentation](https://polyai.github.io/adk/)**
 
-- [How it works](#how-it-works): how changes move between git and Agent Studio.
+- [How it works](#how-it-works): how changes move between git and Dialog Studio.
 - [Getting started](#getting-started): set up your machine to work on projects in an existing repo.
-- [Development workflow](#development-workflow): branches, pull requests, and trying changes in Agent Studio.
+- [Development workflow](#development-workflow): branches, pull requests, and trying changes in Dialog Studio.
 - [Adding a project](#adding-a-project): bring a project the repo doesn't have yet.
-- [Syncing from Agent Studio](#syncing-from-agent-studio): when the sync workflow runs.
+- [Syncing from Dialog Studio](#syncing-from-dialog-studio): when the sync workflow runs.
 - [Keeping up to date](#keeping-up-to-date): the ADK version and the template's workflows.
 - [Troubleshooting](#troubleshooting): common failures and their fixes.
 - [Setting up a new repo](SETUP.md): one-off setup for repo admins.
@@ -35,7 +35,7 @@ sequenceDiagram
         participant PR as Pull request
         participant Main as main
     end
-    box Agent Studio
+    box Dialog Studio
         participant Branch as PR branch
         participant ASMain as main
     end
@@ -43,16 +43,16 @@ sequenceDiagram
     Note over PR,ASMain: Merge queue or /poly-merge
     Branch->>ASMain: Deploy merges the branch and publishes
     PR->>Main: The PR is squashed onto main
-    Note over Main,ASMain: Later, in Agent Studio
+    Note over Main,ASMain: Later, in Dialog Studio
     ASMain->>Main: Publish or rollback: Sync Projects commits the change
 ```
 
-A pull request's changes go to an Agent Studio branch with the same name as the git branch, where you can test them. The merge queue, or a `/poly-merge` comment in repos set up for it, merges that branch into Agent Studio main, which publishes the project, and squashes the PR onto git `main`. Changes published in Agent Studio come back to git `main` through the Sync Projects workflow.
+A pull request's changes go to an Dialog Studio branch with the same name as the git branch, where you can test them. The merge queue, or a `/poly-merge` comment in repos set up for it, merges that branch into Dialog Studio main, which publishes the project, and squashes the PR onto git `main`. Changes published in Dialog Studio come back to git `main` through the Sync Projects workflow.
 
 ```
 agents/
   <account>/
-    <project>/          # Agent Studio project
+    <project>/          # Dialog Studio project
 .github/
   workflows/            # CI, deploy, sync, branch cleanup
   scripts/              # Shared shell + Python scripts for CI
@@ -75,7 +75,7 @@ uv pip install -e ".[dev]"
 # Install the git hooks
 pre-commit install
 
-# Sign in to Agent Studio
+# Sign in to Dialog Studio
 poly setup
 ```
 
@@ -83,7 +83,7 @@ poly setup
 
 The project you work on is at `agents/<account>/<project>/`. Run `poly` commands from that directory.
 
-The git hooks format each project you commit to with `.github/scripts/format-project.sh`, the same formatting a sync from Agent Studio applies, then run the ruff and ty checks CI runs, plus a JSON syntax check. If the hook reformats files, the commit stops: to fix this, add the changes and commit. Ensure when you commit you use the virtual environment, as the hooks use its `poly` and `ruff`.
+The git hooks format each project you commit to with `.github/scripts/format-project.sh`, the same formatting a sync from Dialog Studio applies, then run the ruff and ty checks CI runs, plus a JSON syntax check. If the hook reformats files, the commit stops: to fix this, add the changes and commit. Ensure when you commit you use the virtual environment, as the hooks use its `poly` and `ruff`.
 
 In VS Code, select the `.venv` interpreter: `Cmd+Shift+P` > **"Python: Select Interpreter"** > choose `.venv/bin/python`.
 
@@ -91,30 +91,30 @@ In VS Code, select the `.venv` interpreter: `Cmd+Shift+P` > **"Python: Select In
 
 ### Making changes
 
-1. Create a git branch. Then, from the project directory, switch the ADK to the Agent Studio branch with the same name. This creates it from main if it doesn't exist yet, and keeps your files:
+1. Create a git branch. Then, from the project directory, switch the ADK to the Dialog Studio branch with the same name. This creates it from main if it doesn't exist yet, and keeps your files:
 
    ```bash
    poly branch switch "$(git branch --show-current)" --create --from main --keep-files
    ```
 
-   The ADK tracks its Agent Studio branch separately from git, so switching git branches doesn't move it. Run the same command after every `git switch`. `poly branch current` shows the branch the ADK is on.
+   The ADK tracks its Dialog Studio branch separately from git, so switching git branches doesn't move it. Run the same command after every `git switch`. `poly branch current` shows the branch the ADK is on.
 
 2. Make your changes and commit them.
-3. Open a PR. CI runs lint and tests, then pushes your changes to the Agent Studio branch.
-4. Merge through the merge queue, or comment `/poly-merge` if the repo uses it (see [Merge queue or `/poly-merge`](SETUP.md#merge-queue-or-poly-merge)). Either way, the PR merged into `main` is linted, tested and deployed: its Agent Studio branch merges into Agent Studio main, which publishes the project, then the PR is squashed onto `main`.
+3. Open a PR. CI runs lint and tests, then pushes your changes to the Dialog Studio branch.
+4. Merge through the merge queue, or comment `/poly-merge` if the repo uses it (see [Merge queue or `/poly-merge`](SETUP.md#merge-queue-or-poly-merge)). Either way, the PR merged into `main` is linted, tested and deployed: its Dialog Studio branch merges into Dialog Studio main, which publishes the project, then the PR is squashed onto `main`.
 
-### Trying changes in Agent Studio
+### Trying changes in Dialog Studio
 
-CI pushes to the Agent Studio branch on every PR push. To try a change before pushing to GitHub, run these from the project directory, on the Agent Studio branch that matches your git branch:
+CI pushes to the Dialog Studio branch on every PR push. To try a change before pushing to GitHub, run these from the project directory, on the Dialog Studio branch that matches your git branch:
 
 ```bash
-# Push to the Agent Studio branch
+# Push to the Dialog Studio branch
 poly push
 
-# Pull from Agent Studio
+# Pull from Dialog Studio
 poly pull
 
-# Chat with the agent on your Agent Studio branch, pushing local changes first
+# Chat with the agent on your Dialog Studio branch, pushing local changes first
 poly chat --push
 
 # Call the agent with your microphone and speaker (needs a non-main branch)
@@ -122,9 +122,9 @@ poly call --push
 ```
 
 > [!NOTE]
-> `poly push` sends your local project files to the Agent Studio branch. It is not a git push.
+> `poly push` sends your local project files to the Dialog Studio branch. It is not a git push.
 
-`poly chat` talks to the last pushed state of your Agent Studio branch, and `--environment` picks another environment instead. `poly call` only reaches a branch's draft build, not main. Its audio dependencies come with the `dev` extras. See the ADK docs for [`poly chat`](https://polyai.github.io/adk/reference/cli/chat/), [`poly call`](https://polyai.github.io/adk/reference/cli/call/), [testing](https://polyai.github.io/adk/development/testing/) and the [full CLI reference](https://polyai.github.io/adk/reference/cli/).
+`poly chat` talks to the last pushed state of your Dialog Studio branch, and `--environment` picks another environment instead. `poly call` only reaches a branch's draft build, not main. Its audio dependencies come with the `dev` extras. See the ADK docs for [`poly chat`](https://polyai.github.io/adk/reference/cli/chat/), [`poly call`](https://polyai.github.io/adk/reference/cli/call/), [testing](https://polyai.github.io/adk/development/testing/) and the [full CLI reference](https://polyai.github.io/adk/reference/cli/).
 
 ### Lint and test
 
@@ -149,7 +149,7 @@ poly init --base-path agents
 
 `poly init` asks you to pick the region, account and project. To skip the questions, pass them with `--region <region> --account_id <account> --project_id <project>`. It pulls the project into `agents/<account>/<project>/`.
 
-Before committing, run the git hooks: they format the project exactly as a sync from Agent Studio would, so CI and the merge queue's sync check accept it. The hooks only see files git knows about, so stage the project first:
+Before committing, run the git hooks: they format the project exactly as a sync from Dialog Studio would, so CI and the merge queue's sync check accept it. The hooks only see files git knows about, so stage the project first:
 
 ```bash
 git add agents/<account>/<project>
@@ -157,19 +157,19 @@ pre-commit run --all-files
 git add agents/<account>/<project>
 ```
 
-Then commit it on a branch and open a PR. CI finds projects by their `project.yaml`, so nothing else needs registering. Once it's merged, [set up the sync webhook](SETUP.md#5-agent-studio-webhooks) for the project.
+Then commit it on a branch and open a PR. CI finds projects by their `project.yaml`, so nothing else needs registering. Once it's merged, [set up the sync webhook](SETUP.md#5-dialog-studio-webhooks) for the project.
 
-## Syncing from Agent Studio
+## Syncing from Dialog Studio
 
-The **Sync Projects** workflow pulls the latest state from Agent Studio into the repo and pushes it to `main`. It runs:
+The **Sync Projects** workflow pulls the latest state from Dialog Studio into the repo and pushes it to `main`. It runs:
 
-- when Agent Studio sends a dispatch after a publish or rollback (see [Agent Studio webhooks](SETUP.md#5-agent-studio-webhooks))
+- when Dialog Studio sends a dispatch after a publish or rollback (see [Dialog Studio webhooks](SETUP.md#5-dialog-studio-webhooks))
 - nightly at 03:00 UTC
 - when the ADK version in `pyproject.toml` changes
 - manually, from the Actions tab
 
 > [!NOTE]
-> A merge can't overwrite changes made in Agent Studio that haven't been synced yet. Before merging, Deploy or `/poly-merge` checks that Agent Studio main matches git `main`, and fails the PR with `AS branch main is not in sync with git main` if a sync would change anything. Run Sync Projects for the project, then re-queue the PR or comment `/poly-merge` again. The webhook keeps the repo in sync, so this rarely happens.
+> A merge can't overwrite changes made in Dialog Studio that haven't been synced yet. Before merging, Deploy or `/poly-merge` checks that Dialog Studio main matches git `main`, and fails the PR with `DS branch main is not in sync with git main` if a sync would change anything. Run Sync Projects for the project, then re-queue the PR or comment `/poly-merge` again. The webhook keeps the repo in sync, so this rarely happens.
 
 ## Keeping up to date
 
@@ -195,12 +195,12 @@ This syncs `.github/workflows/`, `.github/scripts/`, `.github/assets/` and `.pre
 
 | Symptom | Cause |
 | ------- | ----- |
-| `poly push` or `poly chat` uses the wrong Agent Studio branch | The ADK's branch doesn't follow git. Run `poly branch switch "$(git branch --show-current)" --create --from main --keep-files` (see [Making changes](#making-changes)). |
+| `poly push` or `poly chat` uses the wrong Dialog Studio branch | The ADK's branch doesn't follow git. Run `poly branch switch "$(git branch --show-current)" --create --from main --keep-files` (see [Making changes](#making-changes)). |
 | CI fails ruff or prettier on a newly added project | It was committed straight after `poly init`. Format it with the hooks as in [Adding a project](#adding-a-project). |
-| A PR fails in the merge queue or `/poly-merge` with `AS branch main is not in sync with git main` | Agent Studio has changes the repo doesn't. Run Sync Projects for the project, then re-queue or comment `/poly-merge` again. To merge anyway and overwrite the Agent Studio changes, add the `skip-as-sync-check` label first. |
+| A PR fails in the merge queue or `/poly-merge` with `DS branch main is not in sync with git main` | Dialog Studio has changes the repo doesn't. Run Sync Projects for the project, then re-queue or comment `/poly-merge` again. To merge anyway and overwrite the Dialog Studio changes, add the `skip-as-sync-check` label first. |
 | `/poly-merge` does nothing | The repo variable `DEPLOY_MODE` isn't `command`, or the comment isn't exactly `/poly-merge`. |
 | A PR waits for `poly/deploy` | It changes a project: comment `/poly-merge`. If the check is missing, the PR was last pushed before `/poly-merge` was set up: push a commit. |
-| Publishing starts no run | GitHub rejected the dispatch, usually because the token can't see the repo (its resource owner isn't the organisation, or the repo isn't selected) or the secret is missing, misnamed, or lacks the `Bearer ` prefix or project access. See [Agent Studio webhooks](SETUP.md#5-agent-studio-webhooks). |
+| Publishing starts no run | GitHub rejected the dispatch, usually because the token can't see the repo (its resource owner isn't the organisation, or the repo isn't selected) or the secret is missing, misnamed, or lacks the `Bearer ` prefix or project access. See [Dialog Studio webhooks](SETUP.md#5-dialog-studio-webhooks). |
 | Sync Projects fails at the GitHub App token step with `Invalid keyData` | `GH_APP_PRIVATE_KEY` isn't a valid key. Set it from the `.pem` file (see [GitHub App](SETUP.md#2-github-app)). |
 | Sync Projects fails at find-projects with `No projects found matching filters` | No project on `main` has the account or project ID it was given. The project isn't on `main` yet, or the ID from the dispatch or the manual run doesn't match its `project.yaml`. The log prints the IDs it looked for. |
 

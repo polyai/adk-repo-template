@@ -80,7 +80,7 @@ jobs:
       POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
       POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
     # Serialise per project, not per job: two queue entries touching the same
-    # project must not merge to Agent Studio concurrently, but different projects
+    # project must not merge to Dialog Studio concurrently, but different projects
     # in one PR should still run in parallel.
     concurrency:
       group: merge-as-${{ github.event.merge_group.base_ref }}-${{ matrix.project }}
@@ -97,12 +97,12 @@ jobs:
           fetch-depth: 1
 
       # A re-run can't merge the PR (the queue already evicted the entry) — it can
-      # only force-push a stale checkout to Agent Studio, reverting newer work.
+      # only force-push a stale checkout to Dialog Studio, reverting newer work.
       - name: Refuse re-runs of merge-queue attempts
         run: |
           if [ "${GITHUB_RUN_ATTEMPT:-1}" -gt 1 ]; then
             echo "Re-running a merge-queue run cannot merge the PR and would push a stale"
-            echo "checkout to Agent Studio. Add the PR to the merge queue again instead."
+            echo "checkout to Dialog Studio. Add the PR to the merge queue again instead."
             exit 1
           fi
           echo "First attempt"
@@ -144,7 +144,7 @@ jobs:
           echo "BRANCH_NAME=$ORIGINAL_BRANCH" >> "$GITHUB_OUTPUT"
           echo "PR_NUMBER=$PR_NUMBER" >> "$GITHUB_OUTPUT"
 
-      - name: Deploy to Agent Studio
+      - name: Deploy to Dialog Studio
         env:
           PROJECT: ${{ matrix.project }}
           AS_BRANCH: ${{ steps.extract_branch.outputs.BRANCH_NAME }}
@@ -160,12 +160,12 @@ jobs:
           # not unshallow the checkout and add latency per parallel merge job.
           git fetch --depth=1 origin main "$AS_BRANCH" 2>/dev/null || true
           export BRANCH_REF="origin/$AS_BRANCH"
-          # Same-name convention as the rest of the pipeline: the AS parent branch
+          # Same-name convention as the rest of the pipeline: the DS parent branch
           # is named after the git branch this PR merges into.
           export PARENT_BRANCH="${BASE_REF#refs/heads/}"
           # Strip the project scope from the conventional-commit subject:
           # feat(project_id): message -> feat: message. The scope is a git-side
-          # concern; inside Agent Studio the project is already implied.
+          # concern; inside Dialog Studio the project is already implied.
           MERGE_MESSAGE=$(git log -1 "$HEAD_SHA" --pretty=format:%s \
             | sed -E 's/^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)\([^)]+\)!?:/\1:/')
           export MERGE_MESSAGE

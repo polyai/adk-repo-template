@@ -21,10 +21,10 @@ body:
     attributes:
       label: Where did it go wrong?
       options:
-        - CI (pull request checks or the Agent Studio branch push)
+        - CI (pull request checks or the Dialog Studio branch push)
         - Deploy (merge queue)
         - Sync Projects
-        - Agent Studio branch cleanup
+        - Dialog Studio branch cleanup
         - Pre-commit hooks
         - Setting up a new repo (SETUP.md)
         - Other
