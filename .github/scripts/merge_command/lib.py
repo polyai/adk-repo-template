@@ -91,7 +91,7 @@ def set_waiting(sha: str, projects: list[str]) -> None:
 
 
 def is_deployed(sha: str) -> bool:
-    """Whether the merging App's latest poly/deploy run on sha says it's deployed."""
+    """Whether the App's latest poly/deploy run on sha says it's deployed."""
     runs = gh(
         "-X",
         "GET",

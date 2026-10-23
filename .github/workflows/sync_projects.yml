@@ -284,9 +284,6 @@ jobs:
   sync-projects:
     name: Sync ${{ matrix.project }}
     runs-on: ubuntu-latest
-    environment:
-      name: ${{ vars.APP_ENVIRONMENT }}
-      deployment: false
     needs: [resolve, find-projects]
     if: |
       !cancelled() && needs.find-projects.result == 'success' &&
