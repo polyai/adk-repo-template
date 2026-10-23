@@ -70,73 +70,15 @@ jobs:
           source .venv/bin/activate
           uv pip install -e ".[ci]"
 
-      - name: Lint with ruff
-        env:
-          PROJECTS_JSON: ${{ needs.detect-changes.outputs.projects }}
-        run: |
-          source .venv/bin/activate
-          PROJECTS="$PROJECTS_JSON"
-          PATHS=()
-          while IFS= read -r dir; do
-            [ -z "$dir" ] && continue
-            PATHS+=("agents/$dir")
-          done < <(echo "$PROJECTS" | jq -r '.[]')
-          if [ ${#PATHS[@]} -gt 0 ]; then
-            ruff check "${PATHS[@]}"
-          fi
-
-      - name: Format check with ruff
-        env:
-          PROJECTS_JSON: ${{ needs.detect-changes.outputs.projects }}
-        run: |
-          source .venv/bin/activate
-          PROJECTS="$PROJECTS_JSON"
-          PATHS=()
-          while IFS= read -r dir; do
-            [ -z "$dir" ] && continue
-            PATHS+=("agents/$dir")
-          done < <(echo "$PROJECTS" | jq -r '.[]')
-          if [ ${#PATHS[@]} -gt 0 ]; then
-            ruff format --check "${PATHS[@]}"
-          fi
-
       - name: Install prettier
         run: npm install -g prettier@3.1.0
 
-      - name: Format check YAML with prettier
-        env:
-          PROJECTS_JSON: ${{ needs.detect-changes.outputs.projects }}
-        run: |
-          PROJECTS="$PROJECTS_JSON"
-          PATHS=()
-          while IFS= read -r dir; do
-            [ -z "$dir" ] && continue
-            PATHS+=("agents/$dir/**/*.{yaml,yml}")
-          done < <(echo "$PROJECTS" | jq -r '.[]')
-          if [ ${#PATHS[@]} -gt 0 ]; then
-            prettier --check "${PATHS[@]}"
-          fi
-
-      - name: Type check with ty
-        env:
-          PROJECTS_JSON: ${{ needs.detect-changes.outputs.projects }}
-        run: |
-          PROJECTS="$PROJECTS_JSON"
-          PATHS=()
-          while IFS= read -r dir; do
-            [ -z "$dir" ] && continue
-            PATHS+=("agents/$dir")
-          done < <(echo "$PROJECTS" | jq -r '.[]')
-          if [ ${#PATHS[@]} -gt 0 ]; then
-            uvx ty check "${PATHS[@]}"
-          fi
-
-      - name: Run tests
+      - name: Lint and test
         env:
           PROJECTS_JSON: ${{ needs.detect-changes.outputs.projects }}
         run: |
           source .venv/bin/activate
-          .github/scripts/run-tests.sh "$PROJECTS_JSON"
+          .github/scripts/lint-and-test.sh "$PROJECTS_JSON"
 
   push-to-as-branch:
     needs: detect-changes
@@ -213,9 +155,19 @@ jobs:
             "agents/${PROJECT}" \
             "$BRANCH_NAME"
 
+  merge-command-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.3.0
+
+      - name: Test the /poly-merge scripts
+        run: uv run --no-project --python 3.14 --with pytest pytest .github/scripts/merge_command/tests
+
   ci:
     name: Verify all CI jobs passed or were skipped
-    needs: [detect-changes, lint-and-test, push-to-as-branch]
+    needs: [detect-changes, lint-and-test, push-to-as-branch, merge-command-tests]
     runs-on: ubuntu-latest
     if: always()
     permissions:
@@ -237,6 +189,10 @@ jobs:
             FAILED_JOBS="${FAILED_JOBS}push-to-as-branch "
           fi
 
+          if [ "${{ needs.merge-command-tests.result }}" != "success" ] && [ "${{ needs.merge-command-tests.result }}" != "skipped" ]; then
+            FAILED_JOBS="${FAILED_JOBS}merge-command-tests "
+          fi
+
           if [ -n "$FAILED_JOBS" ]; then
             echo "The following CI jobs failed: $FAILED_JOBS"
             echo ""
@@ -244,7 +200,8 @@ jobs:
             echo "  detect-changes: ${{ needs.detect-changes.result }}"
             echo "  lint-and-test: ${{ needs.lint-and-test.result }}"
             echo "  push-to-as-branch: ${{ needs.push-to-as-branch.result }}"
-              exit 1
+            echo "  merge-command-tests: ${{ needs.merge-command-tests.result }}"
+            exit 1
           fi
 
           echo "All CI jobs passed or were skipped"
@@ -253,3 +210,4 @@ jobs:
           echo "  detect-changes: ${{ needs.detect-changes.result }}"
           echo "  lint-and-test: ${{ needs.lint-and-test.result }}"
           echo "  push-to-as-branch: ${{ needs.push-to-as-branch.result }}"
+          echo "  merge-command-tests: ${{ needs.merge-command-tests.result }}"

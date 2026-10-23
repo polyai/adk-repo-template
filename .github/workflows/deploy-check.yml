@@ -1,0 +1,83 @@
+name: Deploy check
+
+# Sets the poly/deploy check on every new PR head: waiting for /poly-merge when the
+# PR changes a project, passing when it doesn't. Only the sync App can set this check,
+# so the ruleset can require it.
+#
+# pull_request_target runs this file from the default branch with the sync App's
+# secrets. It reads the PR through the API and never checks out or runs the PR's code.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: deploy-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  deploy-check:
+    name: Set the poly/deploy check
+    if: vars.DEPLOY_MODE == 'command'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
+      - name: Set the check
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          APP_ID: ${{ secrets.GH_APP_ID }}
+        run: |
+          set -o pipefail
+
+          # A reopen or a late run must not take the green check away from a deployed head.
+          DEPLOYED=$(gh api -X GET "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs" \
+              -f check_name=poly/deploy -f app_id="$APP_ID" \
+              --jq '.check_runs | max_by(.id) | select(. != null and .conclusion == "success" and .output.title == "Deployed to Dialog Studio") | .id')
+          if [ -n "$DEPLOYED" ]; then
+            echo "Already deployed to Dialog Studio"
+            exit 0
+          fi
+
+          # A directory under agents/<account>/<project>/ counts only while it still has a
+          # project.yaml at the PR head, so deleting a project needs no deploy.
+          CANDIDATES=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
+              --jq '.[] | .filename, (.previous_filename // empty)' \
+            | awk -F/ 'NF >= 4 && $1 == "agents" { print $2 "/" $3 }' | sort -u)
+
+          PROJECTS=()
+          for project in $CANDIDATES; do
+            if out=$(gh api "repos/$GITHUB_REPOSITORY/contents/agents/$project/project.yaml?ref=$HEAD_SHA" --silent 2>&1); then
+              PROJECTS+=("$project")
+            elif ! grep -q "HTTP 404" <<<"$out"; then
+              echo "::error::Couldn't check agents/$project/project.yaml: $out"
+              exit 1
+            fi
+          done
+
+          if [ ${#PROJECTS[@]} -eq 0 ]; then
+            echo "No project changes: no deploy needed"
+            jq -n --arg sha "$HEAD_SHA" '{
+              name: "poly/deploy", head_sha: $sha, status: "completed", conclusion: "success",
+              output: {title: "No project changes", summary: "No deploy needed."}
+            }' | gh api -X POST "repos/$GITHUB_REPOSITORY/check-runs" --input - --silent
+            exit 0
+          fi
+
+          echo "Projects changed: ${PROJECTS[*]}. Awaiting /poly-merge."
+          printf '%s\n' "${PROJECTS[@]}" | jq -R . | jq -s --arg sha "$HEAD_SHA" '{
+            name: "poly/deploy", head_sha: $sha, status: "queued",
+            output: {
+              title: "Awaiting /poly-merge",
+              summary: ("Projects to deploy:\n\n" + (map("- `\(.)`") | join("\n")))
+            }
+          }' | gh api -X POST "repos/$GITHUB_REPOSITORY/check-runs" --input - --silent
