@@ -76,42 +76,26 @@ PRs that change a project merge one of two ways. Both lint, test and deploy the 
 
 To use `/poly-merge`:
 
-1. **Choose which App merges** (see below), and give it **Checks**, **Issues**, **Pull requests** and **Workflows**, all **Read and write**, as well as **Contents**.
-2. **Turn it on:**
+1. **Create a second GitHub App** for merging, the same way as in [step 2](#2-github-app). It mustn't be the sync App: that App bypasses the ruleset, and this one must not.
+   - **Repository permissions:** **Checks**, **Contents**, **Issues**, **Pull requests** and **Workflows**, all **Read and write**.
+   - Install it on this repo only, and generate a private key.
+2. **Create an environment** called `merge-command` in **Settings > Environments**, with deployment branches limited to `main`, and add the App's credentials to it:
+
+   ```bash
+   gh secret set MERGE_APP_ID --env merge-command --body <app-id>
+   gh secret set MERGE_APP_PRIVATE_KEY --env merge-command < path/to/merge-app.private-key.pem
+   ```
+
+   With the key in the environment, a workflow on another branch can't read it and pass the deploy check itself.
+3. **Turn it on:**
 
    ```bash
    gh variable set DEPLOY_MODE --body command
    ```
 
-3. **In the ruleset**, leave out **Require merge queue**, and add **`poly/deploy`** as a second required check, with the merging App as its source.
+4. **In the ruleset**, leave out **Require merge queue**, and add **`poly/deploy`** as a second required check, with the merge App as its source. Keep the sync App on the bypass list.
 
-Each PR head then gets a `poly/deploy` check, which only the merging App can set. It waits for `/poly-merge` when the PR changes a project, and passes when it doesn't. PRs opened before the setup need a new push to get it.
-
-#### Which App merges
-
-- **One App (simplest).** Use the sync App from [step 2](#2-github-app).
-- **Two Apps.** Create a separate merge App the same way, and add its credentials as `MERGE_APP_ID` and `MERGE_APP_PRIVATE_KEY`. `/poly-merge` uses them when they're set, and the sync App's otherwise. Don't add the merge App to the ruleset's bypass list.
-
-With two Apps, the sync App keeps only Contents. And because the merge App doesn't bypass the ruleset, GitHub itself checks approvals and required checks when it merges. With one App, `/poly-merge` checks them before merging.
-
-#### Optional: limit the App keys to `main`
-
-By default the App credentials are repo secrets, so a workflow on any branch can use them. Anyone with write access could push a workflow on a branch that pushes straight to `main` or sets `poly/deploy` itself. To prevent that, keep the keys in an environment only `main` can use:
-
-1. Create an environment, for example `apps`, in **Settings > Environments**, and limit its deployment branches to `main`.
-2. Set the repo variable `APP_ENVIRONMENT` to its name. Every job that creates an App token then uses it.
-3. Move the credentials into the environment, then delete the repo secrets:
-
-   ```bash
-   gh secret set GH_APP_ID --env apps --body <app-id>
-   gh secret set GH_APP_PRIVATE_KEY --env apps < path/to/app.private-key.pem
-   gh secret delete GH_APP_ID
-   gh secret delete GH_APP_PRIVATE_KEY
-   ```
-
-   Do the same for `MERGE_APP_ID` and `MERGE_APP_PRIVATE_KEY` if you use two Apps.
-
-Then run Sync Projects from `main`: to sync into another branch, pass it as the `branch` input, because a run started on the branch itself can't read the keys. The jobs don't create deployment records, and repo admins can still change the environment's rules.
+Each PR head then gets a `poly/deploy` check, which only the merge App can set. It waits for `/poly-merge` when the PR changes a project, and passes when it doesn't. PRs opened before the setup need a new push to get it.
 
 ## 5. Agent Studio webhooks
 

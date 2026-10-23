@@ -91,7 +91,7 @@ def set_waiting(sha: str, projects: list[str]) -> None:
 
 
 def is_deployed(sha: str) -> bool:
-    """Whether the merging App's latest poly/deploy run on sha says it's deployed."""
+    """Whether the merge App's latest poly/deploy run on sha says it's deployed."""
     runs = gh(
         "-X",
         "GET",
@@ -99,7 +99,7 @@ def is_deployed(sha: str) -> bool:
         "-f",
         f"check_name={DEPLOY_CHECK}",
         "-f",
-        f"app_id={os.environ['APP_ID']}",
+        f"app_id={os.environ['MERGE_APP_ID']}",
     )
     latest = max(runs["check_runs"], key=lambda r: r["id"], default=None)
     return bool(
