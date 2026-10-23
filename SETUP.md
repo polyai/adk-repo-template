@@ -151,7 +151,7 @@ Merge it through a PR. Once Deploy publishes it, each publish or rollback in Dia
 
 ## 6. Check it works
 
-1. Open a PR that changes a project. CI should push to an Dialog Studio branch of the same name.
+1. Open a PR that changes a project. CI should push to a Dialog Studio branch of the same name.
 2. Merge it through the merge queue, or comment `/poly-merge`. That should merge the branch into Dialog Studio main, then merge the PR.
 3. Publish a change in Dialog Studio. Sync Projects should push an `Update from AS` commit to `main`.
 

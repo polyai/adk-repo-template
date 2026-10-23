@@ -1,4 +1,4 @@
-"""Delete an Dialog Studio branch."""
+"""Delete a Dialog Studio branch."""
 
 import argparse
 import sys
@@ -33,7 +33,7 @@ def delete_branch(base_path: str, branch_name: str) -> tuple[bool, str]:
 def main() -> None:
     """Main entry point for the delete branch script."""
     parser = argparse.ArgumentParser(
-        description="Delete an Dialog Studio branch (e.g. when a PR is closed)."
+        description="Delete a Dialog Studio branch (e.g. when a PR is closed)."
     )
     parser.add_argument(
         "base_path",

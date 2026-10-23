@@ -57,7 +57,7 @@ def _sync_would_change_git(
 def check_parent_in_sync(
     base_path: str, branch: str = "main", format_hook: Path = DEFAULT_FORMAT_HOOK
 ) -> int:
-    """Check whether an Dialog Studio branch is in sync with the checkout at base_path.
+    """Check whether a Dialog Studio branch is in sync with the checkout at base_path.
 
     branch is the DS branch being merged into (the parent — today always main).
     base_path must point at the project dir inside a DISPOSABLE checkout of the
@@ -111,7 +111,7 @@ def check_parent_in_sync(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Check whether an Dialog Studio branch is in sync with a git checkout "
+        description="Check whether a Dialog Studio branch is in sync with a git checkout "
         "of the parent branch, ignoring divergence a sync's formatting pass would erase."
     )
     parser.add_argument(

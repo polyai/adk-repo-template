@@ -5,7 +5,7 @@ from poly.project import AgentStudioProject
 
 
 def check_branch_exists(base_path: str, branch_name: str) -> bool:
-    """Check if an Dialog Studio branch exists.
+    """Check if a Dialog Studio branch exists.
 
     Args:
         base_path: The file path to the Dialog Studio project.
@@ -24,7 +24,7 @@ def check_branch_exists(base_path: str, branch_name: str) -> bool:
 
 def main() -> None:
     """Main entry point for the check branch exists script."""
-    parser = argparse.ArgumentParser(description="Check if an Dialog Studio branch exists.")
+    parser = argparse.ArgumentParser(description="Check if a Dialog Studio branch exists.")
     parser.add_argument(
         "base_path",
         type=str,

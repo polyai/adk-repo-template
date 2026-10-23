@@ -29,7 +29,7 @@ def fetch_project_state(
 
 
 def load_local_agent_studio_project(base_path: str, branch_name: str) -> AgentStudioProject:
-    """Load an Dialog Studio project from the given base path and switch to the specified branch.
+    """Load a Dialog Studio project from the given base path and switch to the specified branch.
 
     If the specified branch does not exist, the project will remain on the main branch.
 

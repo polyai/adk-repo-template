@@ -12,7 +12,7 @@
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Develop with Claude Code](https://img.shields.io/badge/Develop%20with-Claude%20Code-DC9E63?logo=claude)](https://claude.ai/download)
 
-Template repository for ADK-managed agent projects. Each project under `agents/` is an Dialog Studio project, managed with the [PolyAI ADK](https://github.com/polyai/adk). Pull requests push changes to Dialog Studio, and the merge queue, or a `/poly-merge` comment, merges them there. A sync workflow brings changes made in Dialog Studio back into the repo.
+Template repository for ADK-managed agent projects. Each project under `agents/` is a Dialog Studio project, managed with the [PolyAI ADK](https://github.com/polyai/adk). Pull requests push changes to Dialog Studio, and the merge queue, or a `/poly-merge` comment, merges them there. A sync workflow brings changes made in Dialog Studio back into the repo.
 
 New to PolyAI? Sign up at [studio.poly.ai](https://studio.poly.ai) and start free.
 
@@ -47,7 +47,7 @@ sequenceDiagram
     ASMain->>Main: Publish or rollback: Sync Projects commits the change
 ```
 
-A pull request's changes go to an Dialog Studio branch with the same name as the git branch, where you can test them. The merge queue, or a `/poly-merge` comment in repos set up for it, merges that branch into Dialog Studio main, which publishes the project, and squashes the PR onto git `main`. Changes published in Dialog Studio come back to git `main` through the Sync Projects workflow.
+A pull request's changes go to a Dialog Studio branch with the same name as the git branch, where you can test them. The merge queue, or a `/poly-merge` comment in repos set up for it, merges that branch into Dialog Studio main, which publishes the project, and squashes the PR onto git `main`. Changes published in Dialog Studio come back to git `main` through the Sync Projects workflow.
 
 ```
 agents/
