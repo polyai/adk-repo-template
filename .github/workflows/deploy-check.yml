@@ -1,10 +1,10 @@
 name: Deploy check
 
 # Sets the poly/deploy check on every new PR head: waiting for /poly-merge when the
-# PR changes a project, passing when it doesn't. Only the merge App can set this check,
+# PR changes a project, passing when it doesn't. Only the sync App can set this check,
 # so the ruleset can require it.
 #
-# pull_request_target runs this file from the default branch with the merge App's
+# pull_request_target runs this file from the default branch with the sync App's
 # secrets. It reads the PR through the API and never checks out or runs the PR's code.
 
 on:
@@ -22,27 +22,26 @@ jobs:
     name: Set the poly/deploy check
     if: vars.DEPLOY_MODE == 'command'
     runs-on: ubuntu-latest
-    environment: merge-command
     steps:
-      - name: Generate merge App token
+      - name: Generate App token
         id: app-token
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ secrets.MERGE_APP_ID }}
-          private-key: ${{ secrets.MERGE_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
 
       - name: Set the check
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          MERGE_APP_ID: ${{ secrets.MERGE_APP_ID }}
+          APP_ID: ${{ secrets.GH_APP_ID }}
         run: |
           set -o pipefail
 
           # A reopen or a late run must not take the green check away from a deployed head.
           DEPLOYED=$(gh api -X GET "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs" \
-              -f check_name=poly/deploy -f app_id="$MERGE_APP_ID" \
+              -f check_name=poly/deploy -f app_id="$APP_ID" \
               --jq '.check_runs | max_by(.id) | select(. != null and .conclusion == "success" and .output.title == "Deployed to Dialog Studio") | .id')
           if [ -n "$DEPLOYED" ]; then
             echo "Already deployed to Dialog Studio"

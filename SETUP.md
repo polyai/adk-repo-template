@@ -76,26 +76,16 @@ PRs that change a project merge one of two ways. Both lint, test and deploy the 
 
 To use `/poly-merge`:
 
-1. **Create a second GitHub App** for merging, the same way as in [step 2](#2-github-app). It mustn't be the sync App: that App bypasses the ruleset, and this one must not.
-   - **Repository permissions:** **Checks**, **Contents**, **Issues**, **Pull requests** and **Workflows**, all **Read and write**.
-   - Install it on this repo only, and generate a private key.
-2. **Create an environment** called `merge-command` in **Settings > Environments**, with deployment branches limited to `main`, and add the App's credentials to it:
-
-   ```bash
-   gh secret set MERGE_APP_ID --env merge-command --body <app-id>
-   gh secret set MERGE_APP_PRIVATE_KEY --env merge-command < path/to/merge-app.private-key.pem
-   ```
-
-   With the key in the environment, a workflow on another branch can't read it and pass the deploy check itself.
-3. **Turn it on:**
+1. **Give the GitHub App from [step 2](#2-github-app) more permissions:** add **Checks**, **Issues**, **Pull requests** and **Workflows**, all **Read and write**, as well as Contents. Then accept the new permissions on its installation.
+2. **Turn it on:**
 
    ```bash
    gh variable set DEPLOY_MODE --body command
    ```
 
-4. **In the ruleset**, leave out **Require merge queue**, and add **`poly/deploy`** as a second required check, with the merge App as its source. Keep the sync App on the bypass list.
+3. **In the ruleset**, leave out **Require merge queue**, and add **`poly/deploy`** as a second required check, with the same App as its source.
 
-Each PR head then gets a `poly/deploy` check, which only the merge App can set. It waits for `/poly-merge` when the PR changes a project, and passes when it doesn't. PRs opened before the setup need a new push to get it.
+Each PR head then gets a `poly/deploy` check. It waits for `/poly-merge` when the PR changes a project, and passes when it doesn't. PRs opened before the setup need a new push to get it.
 
 ## 5. Agent Studio webhooks
 

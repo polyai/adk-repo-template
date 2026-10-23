@@ -29,7 +29,6 @@ jobs:
     name: Check /poly-merge can run
     if: github.event.issue.pull_request && github.event.comment.body == '/poly-merge' && vars.DEPLOY_MODE == 'command'
     runs-on: ubuntu-latest
-    environment: merge-command
     permissions:
       contents: read
     outputs:
@@ -49,19 +48,19 @@ jobs:
         with:
           python-version: "3.14"
 
-      - name: Generate merge App token
+      - name: Generate App token
         id: app-token
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ secrets.MERGE_APP_ID }}
-          private-key: ${{ secrets.MERGE_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
 
       - name: Check the PR, its approvals and its checks
         id: gate
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           MODE: first
-          MERGE_APP_ID: ${{ secrets.MERGE_APP_ID }}
+          APP_ID: ${{ secrets.GH_APP_ID }}
           COMMENTER: ${{ github.event.comment.user.login }}
           COMMENT_BODY: ${{ github.event.comment.body }}
           COMMENT_ID: ${{ github.event.comment.id }}
@@ -76,7 +75,6 @@ jobs:
     if: needs.gate.outputs.proceed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 75
-    environment: merge-command
     permissions:
       contents: read
       actions: read
@@ -120,19 +118,19 @@ jobs:
           exit 1
 
       # Minted after the wait: installation tokens last an hour.
-      - name: Generate merge App token
+      - name: Generate App token
         id: app-token
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ secrets.MERGE_APP_ID }}
-          private-key: ${{ secrets.MERGE_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
 
       - name: Check again before deploying
         id: recheck
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           MODE: recheck
-          MERGE_APP_ID: ${{ secrets.MERGE_APP_ID }}
+          APP_ID: ${{ secrets.GH_APP_ID }}
           EXPECT_HEAD: ${{ needs.gate.outputs.head_sha }}
           COMMENTER: ${{ github.event.comment.user.login }}
         run: python .github/scripts/merge_command/gate.py
@@ -283,7 +281,6 @@ jobs:
     needs: [gate, wait-turn, lint-and-test, deploy-push, verify-head, deploy-merge]
     if: always() && needs.gate.outputs.proceed == 'true'
     runs-on: ubuntu-latest
-    environment: merge-command
     permissions:
       contents: read
       actions: write
@@ -296,18 +293,18 @@ jobs:
         with:
           python-version: "3.14"
 
-      - name: Generate merge App token
+      - name: Generate App token
         id: app-token
         uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ secrets.MERGE_APP_ID }}
-          private-key: ${{ secrets.MERGE_APP_PRIVATE_KEY }}
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
 
       - name: Merge and report
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           ACTIONS_TOKEN: ${{ github.token }}
-          MERGE_APP_ID: ${{ secrets.MERGE_APP_ID }}
+          APP_ID: ${{ secrets.GH_APP_ID }}
           COMMENTER: ${{ github.event.comment.user.login }}
           HEAD_SHA: ${{ needs.gate.outputs.head_sha }}
           PROJECTS: ${{ needs.gate.outputs.projects }}
