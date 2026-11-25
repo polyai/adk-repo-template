@@ -102,6 +102,20 @@ def _is_sequence_mismatch(errors: list[dict]) -> bool:
     return any("sequence mismatch" in m or "sequence_mismatch" in m for m in messages)
 
 
+# Errors raised when the branch and main hold the same resource under different IDs.
+# Syncing the branch's IDs with main (matched by file path) clears them.
+NAME_COLLISION_MARKERS = (
+    "duplicate",
+    "function step name must be unique across all flows",
+    "has this name",
+)
+
+
+def _is_name_collision(error: dict) -> bool:
+    lower_error = _get_error_message(error).lower()
+    return any(marker in lower_error for marker in NAME_COLLISION_MARKERS)
+
+
 def _merge_with_retry(project, message: str, conflict_resolutions: list[dict] | None = None):
     """Merge, retrying when the branch sequence moved underneath us.
 
@@ -157,13 +171,7 @@ def merge_branch(base_path: str, branch_name: str, message: str) -> tuple[bool, 
     messages = generate_messages(conflicts, errors)
 
     if errors:
-        only_sync_errors = True
-        for error in errors:
-            lower_error = _get_error_message(error).lower()
-            only_sync_errors &= (
-                "duplicate" in lower_error
-                or "function step name must be unique across all flows" in lower_error
-            )
+        only_sync_errors = all(_is_name_collision(error) for error in errors)
 
         if not only_sync_errors:
             return False, "\n".join(messages)
