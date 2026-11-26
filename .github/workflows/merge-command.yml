@@ -41,8 +41,6 @@ jobs:
       as_merge_message: ${{ steps.gate.outputs.as_merge_message }}
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
       - uses: actions/setup-python@v7
         with:
@@ -85,8 +83,6 @@ jobs:
       merge_base: ${{ steps.recheck.outputs.merge_base }}
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
       - uses: actions/setup-python@v7
         with:

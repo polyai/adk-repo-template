@@ -21,6 +21,14 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          # Full history, but commits only: git fetches the trees a diff
+          # needs on demand. Only the files this job reads are checked out.
+          filter: tree:0
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/
+            /pyproject.toml
+            /agents/**/project.yaml
 
       - name: Detect changed projects
         id: detect
@@ -55,8 +63,6 @@ jobs:
       CI: true
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
 
       - uses: astral-sh/setup-uv@v10.3.0
 
@@ -92,7 +98,10 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.head_ref }}
+          # History for the ADK version check, but commits only: git fetches trees and
+          # files on demand, and this commit's whole tree for the checkout.
           fetch-depth: 0
+          filter: tree:0
 
       - uses: astral-sh/setup-uv@v10.3.0
 
