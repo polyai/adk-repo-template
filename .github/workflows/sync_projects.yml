@@ -450,7 +450,7 @@ jobs:
               python .github/scripts/poly_adk_scripts/pull_project.py "$PROJECT_PATH" "${PULL_ARGS[@]}" 2>&1 | tee "$PULL_LOG"
               PULL_EXIT_CODE=${PIPESTATUS[0]}
               set -e
-              if [ $PULL_EXIT_CODE -ne 1 ] || [ $attempt -eq 3 ] || ! grep -qE 'API Error 50[0234]' "$PULL_LOG"; then
+              if [ "$PULL_EXIT_CODE" -ne 1 ] || [ "$attempt" -eq 3 ] || ! grep -qE 'API Error 50[0234]' "$PULL_LOG"; then
                 break
               fi
               echo "Transient Dialog Studio error, retrying (attempt $attempt/3)..."
@@ -458,7 +458,7 @@ jobs:
             done
 
             # Exit 2 means Dialog Studio main already matches disk — not a failure.
-            if [ $PULL_EXIT_CODE -eq 1 ]; then
+            if [ "$PULL_EXIT_CODE" -eq 1 ]; then
               REASON=$(grep -m1 '^Pull failed:' "$PULL_LOG" || echo "Pull failed")
               echo "::error title=Sync failed — $PROJECT::${REASON//%/%25}"
               record "$PROJECT" failed "$REASON"
