@@ -168,6 +168,8 @@ The **Sync Projects** workflow pulls the latest state from Dialog Studio into th
 - when the ADK version in `pyproject.toml` changes
 - manually, from the Actions tab
 
+It shares the projects across a runner per 40, up to 16, and commits and pushes each project as soon as it is pulled. The run's **Summary** lists every project's result: failed with the error, committed with the commit, left for the next sync (because the project changed on the branch while it was being pulled), and how many were unchanged.
+
 > [!NOTE]
 > A merge can't overwrite changes made in Dialog Studio that haven't been synced yet. Before merging, Deploy or `/poly-merge` checks that Dialog Studio main matches git `main`, and fails the PR with `DS branch main is not in sync with git main` if a sync would change anything. Run Sync Projects for the project, then re-queue the PR or comment `/poly-merge` again. The webhook keeps the repo in sync, so this rarely happens.
 
