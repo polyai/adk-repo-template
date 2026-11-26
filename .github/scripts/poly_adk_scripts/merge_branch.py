@@ -96,6 +96,12 @@ def generate_messages(conflicts: list[dict], errors: list[dict]) -> list[str]:
 
 SEQUENCE_MISMATCH_RETRY_DELAYS = (2, 5, 10)
 
+# A merge to main deploys to live. While a Dialog Studio experiment is running the platform
+# rejects that with AB_TEST_ACTIVE unless the caller acknowledges it, the same confirmation
+# Dialog Studio's publish dialog asks for. Acknowledging keeps the experiment running against
+# the new live version instead of forcing it to end before every merge.
+ACKNOWLEDGE_ACTIVE_EXPERIMENT = True
+
 
 def _is_sequence_mismatch(errors: list[dict]) -> bool:
     messages = (_get_error_message(error).lower() for error in errors)
@@ -127,7 +133,9 @@ def _merge_with_retry(project, message: str, conflict_resolutions: list[dict] | 
     for attempt, delay in enumerate(SEQUENCE_MISMATCH_RETRY_DELAYS, start=1):
         try:
             success, conflicts, errors = project.merge_branch(
-                message=message, conflict_resolutions=conflict_resolutions
+                message=message,
+                conflict_resolutions=conflict_resolutions,
+                acknowledge_active_experiment=ACKNOWLEDGE_ACTIVE_EXPERIMENT,
             )
         except ValueError as e:
             if "uncommitted changes" in str(e).lower():
@@ -143,7 +151,11 @@ def _merge_with_retry(project, message: str, conflict_resolutions: list[dict] | 
             f"(attempt {attempt}/{attempts})"
         )
         time.sleep(delay)
-    return project.merge_branch(message=message, conflict_resolutions=conflict_resolutions)
+    return project.merge_branch(
+        message=message,
+        conflict_resolutions=conflict_resolutions,
+        acknowledge_active_experiment=ACKNOWLEDGE_ACTIVE_EXPERIMENT,
+    )
 
 
 def merge_branch(base_path: str, branch_name: str, message: str) -> tuple[bool, str]:
