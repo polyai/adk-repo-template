@@ -191,6 +191,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      actions: write # start Sync Projects when Dialog Studio is ahead of git
     env: &deploy-env
       POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
       POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
@@ -268,6 +269,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      actions: write # start Sync Projects when Dialog Studio is ahead of git
     env: *deploy-env
     strategy:
       fail-fast: false

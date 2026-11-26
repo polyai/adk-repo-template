@@ -31,7 +31,7 @@ echo "== Format check YAML with prettier"
 prettier --check "${YAML[@]}"
 
 echo "== Type check with ty"
-uvx ty check "${PATHS[@]}"
+uvx ty@0.0.48 check "${PATHS[@]}"
 
 echo "== Run tests"
 "$scripts_dir/run-tests.sh" "$1"

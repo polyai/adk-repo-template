@@ -84,6 +84,12 @@ jobs:
     needs: detect-changes
     if: github.event_name == 'pull_request' && needs.detect-changes.outputs.has_projects == 'true'
     runs-on: ubuntu-latest
+    # One push per PR and project at a time: a newer push waits for the running one
+    # (an older waiting one is dropped), so pushes reach Dialog Studio in order and a
+    # slow older run can't overwrite the branch with stale files.
+    concurrency:
+      group: dialog-studio-push-${{ github.event.pull_request.number }}-${{ matrix.project }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       matrix:

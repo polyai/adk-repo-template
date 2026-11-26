@@ -100,6 +100,7 @@ jobs:
     needs: [resolve]
     if: needs.resolve.outputs.from_deployment == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 70
     permissions:
       contents: read
       pull-requests: read
@@ -176,9 +177,11 @@ jobs:
           fi
 
           echo "::notice::PR #$DEPLOY_PR is still merging and matches deployment"
-          echo "Polling until it finishes (max 15m)..."
+          echo "Polling until it finishes (max 60m)..."
 
-          TIMEOUT=900
+          # A large PR's merge build can take well over 15 minutes. Syncing before it
+          # merges would push the PR's own changes to main and restart its build.
+          TIMEOUT=3600
           INTERVAL=15
           ELAPSED=0
 
