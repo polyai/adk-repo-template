@@ -206,18 +206,11 @@ jobs:
       shards: ${{ steps.find.outputs.shards }}
       poly_adk_version_changed: ${{ steps.check-version.outputs.changed }}
     steps:
-      # Only the files this job reads: the whole tree takes 20-35s to fetch in a large repo.
       - uses: actions/checkout@v7
         with:
           # Depth 2 is enough for the HEAD~1 diff below.
           fetch-depth: 2
           ref: ${{ inputs.branch || 'main' }}
-          filter: blob:none
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            /pyproject.toml
-            /.github/scripts/find_projects.py
-            /agents/**/project.yaml
 
       - name: Check if Poly ADK version changed
         id: check-version
@@ -263,23 +256,11 @@ jobs:
     env:
       PROJECTS_JSON: ${{ needs.find-projects.outputs.projects }}
     steps:
-      # Just the tip, with file contents fetched when first read, and only the
-      # repo's tooling and this shard's projects on disk.
+      # Just the tip: nothing the sync does reads older history.
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.branch || 'main' }}
           persist-credentials: false
-          filter: blob:none
-          sparse-checkout: .github
-
-      - name: Check out this shard's projects
-        env:
-          SHARD: ${{ strategy.job-index }}
-          SHARDS: ${{ strategy.job-total }}
-        run: |
-          jq -r --argjson shard "$SHARD" --argjson shards "$SHARDS" \
-            'to_entries[] | select(.key % $shards == $shard) | "agents/" + .value' <<<"$PROJECTS_JSON" \
-            | xargs -r git sparse-checkout add
 
       - uses: astral-sh/setup-uv@v10.3.0
 
