@@ -263,11 +263,23 @@ jobs:
     env:
       PROJECTS_JSON: ${{ needs.find-projects.outputs.projects }}
     steps:
+      # Just the tip, with file contents fetched when first read, and only the
+      # repo's tooling and this shard's projects on disk.
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.branch || 'main' }}
-          fetch-depth: 0
           persist-credentials: false
+          filter: blob:none
+          sparse-checkout: .github
+
+      - name: Check out this shard's projects
+        env:
+          SHARD: ${{ strategy.job-index }}
+          SHARDS: ${{ strategy.job-total }}
+        run: |
+          jq -r --argjson shard "$SHARD" --argjson shards "$SHARDS" \
+            'to_entries[] | select(.key % $shards == $shard) | "agents/" + .value' <<<"$PROJECTS_JSON" \
+            | xargs -r git sparse-checkout add
 
       - uses: astral-sh/setup-uv@v10.3.0
 
