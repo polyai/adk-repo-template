@@ -162,8 +162,8 @@ jobs:
 
       - uses: astral-sh/setup-uv@v10.3.0
 
-      - name: Test the /poly-merge scripts
-        run: uv run --no-project --python 3.14 --with pytest pytest .github/scripts/merge_command/tests
+      - name: Test the /poly-merge and sync scripts
+        run: uv run --no-project --python 3.14 --with pytest --with pyyaml pytest .github/scripts/merge_command/tests .github/scripts/tests
 
   ci:
     name: Verify all CI jobs passed or were skipped

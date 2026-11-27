@@ -19,4 +19,5 @@ cd "$1"
 poly format --path . || true
 ruff format . || true
 ruff check . --fix || true
-prettier --write "**/*.{yaml,yml}" || true
+# warn: without it prettier prints a line for every file, even unchanged ones.
+prettier --log-level warn --write "**/*.{yaml,yml}" || true

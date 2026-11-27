@@ -203,11 +203,13 @@ jobs:
     outputs:
       projects: ${{ steps.find.outputs.projects }}
       has_projects: ${{ steps.find.outputs.has_projects }}
+      shards: ${{ steps.find.outputs.shards }}
       poly_adk_version_changed: ${{ steps.check-version.outputs.changed }}
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0
+          # Depth 2 is enough for the HEAD~1 diff below.
+          fetch-depth: 2
           ref: ${{ inputs.branch || 'main' }}
 
       - name: Check if Poly ADK version changed
@@ -229,63 +231,20 @@ jobs:
         env:
           INPUT_ACCOUNT_ID: ${{ needs.resolve.outputs.account_id }}
           INPUT_PROJECT_ID: ${{ needs.resolve.outputs.project_id }}
+          # A runner per this many projects, up to the max: the sync is CPU-bound,
+          # so more runners is what makes a large sync faster.
+          SYNC_PROJECTS_PER_SHARD: 40
+          SYNC_MAX_SHARDS: 16
         run: |
-          ACCOUNT_FILTER="$INPUT_ACCOUNT_ID"
-          PROJECT_FILTER="$INPUT_PROJECT_ID"
-          PROJECTS=()
-
-          # Helper function to read YAML field
-          read_yaml_field() {
-            local file="$1"
-            local field="$2"
-            yq -r ".$field // \"\"" "$file" 2>/dev/null || \
-              grep -E "^$field:" "$file" | awk '{print $2}' | tr -d '"' | tr -d "'" || echo ""
-          }
-
-          should_filter_account() { [ "$ACCOUNT_FILTER" != "*" ] && [ -n "$ACCOUNT_FILTER" ]; }
-          should_filter_project() { [ "$PROJECT_FILTER" != "*" ] && [ -n "$PROJECT_FILTER" ]; }
-
-          should_filter_account && echo "Filtering by account_id: $ACCOUNT_FILTER"
-          should_filter_project && echo "Filtering by project_id: $PROJECT_FILTER"
-
-          while IFS= read -r file; do
-            dir=$(dirname "$file")
-            # Extract account/project relative to agents/
-            rel_path="${dir#agents/}"
-
-            FILE_ACCOUNT_ID=$(read_yaml_field "$file" "account_id")
-            FILE_PROJECT_ID=$(read_yaml_field "$file" "project_id")
-
-            MATCH=true
-            should_filter_account && [ "$FILE_ACCOUNT_ID" != "$ACCOUNT_FILTER" ] && MATCH=false
-            should_filter_project && [ "$MATCH" = true ] && [ "$FILE_PROJECT_ID" != "$PROJECT_FILTER" ] && MATCH=false
-
-            [ "$MATCH" = true ] && PROJECTS+=("$rel_path")
-          done < <(find agents -name project.yaml -maxdepth 3)
-
-          if [ ${#PROJECTS[@]} -eq 0 ]; then
-            echo "has_projects=false" >> "$GITHUB_OUTPUT"
-            echo "projects=[]" >> "$GITHUB_OUTPUT"
-            # A dispatch or a filtered manual run names the projects to sync, so finding none means the sync didn't happen.
-            if should_filter_account || should_filter_project; then
-              echo "::error::No projects found matching filters"
-              should_filter_account && echo "  account_id: $ACCOUNT_FILTER"
-              should_filter_project && echo "  project_id: $PROJECT_FILTER"
-              exit 1
-            fi
-            echo "::notice::No projects found"
-            exit 0
-          fi
-
-          PROJECTS_JSON=$(printf '%s\n' "${PROJECTS[@]}" | jq -R -s -c 'split("\n") | map(select(length > 0))')
-          echo "projects=$PROJECTS_JSON" >> "$GITHUB_OUTPUT"
-          echo "has_projects=true" >> "$GITHUB_OUTPUT"
-          echo "Found projects: $PROJECTS_JSON"
+          # PyYAML ships in the runner image; install it if that ever changes.
+          python3 -c "import yaml" 2>/dev/null || python3 -m pip install --quiet pyyaml
+          python3 .github/scripts/find_projects.py
 
   sync-projects:
-    name: Sync ${{ matrix.project }}
+    name: Sync projects (${{ matrix.shard }})
     runs-on: ubuntu-latest
     needs: [resolve, find-projects]
+    timeout-minutes: 60
     if: |
       !cancelled() && needs.find-projects.result == 'success' &&
       needs.find-projects.outputs.has_projects == 'true' &&
@@ -293,12 +252,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: ${{ fromJson(needs.find-projects.outputs.projects) }}
+        shard: ${{ fromJson(needs.find-projects.outputs.shards) }}
+    env:
+      PROJECTS_JSON: ${{ needs.find-projects.outputs.projects }}
     steps:
+      # Just the tip: nothing the sync does reads older history.
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.branch || 'main' }}
-          fetch-depth: 0
           persist-credentials: false
 
       - uses: astral-sh/setup-uv@v10.3.0
@@ -316,39 +277,6 @@ jobs:
       - name: Install prettier
         run: npm install -g prettier@3.1.0
 
-      - name: Pull from Dialog Studio
-        env:
-          POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
-          POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
-          POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
-          POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
-          POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
-          # A Poly ADK version bump regenerates _gen/, which the skip-if-unchanged
-          # check has nothing to compare against — always pull there.
-          FORCE_PULL: ${{ github.event_name == 'push' && needs.find-projects.outputs.poly_adk_version_changed == 'true' }}
-          PROJECT: ${{ matrix.project }}
-        run: |
-          source .venv/bin/activate
-          PROJECT_PATH="agents/${PROJECT}"
-          echo "Pulling $PROJECT_PATH from Dialog Studio..."
-
-          PULL_ARGS=""
-          if [ "$FORCE_PULL" = "true" ]; then
-            PULL_ARGS="--force"
-          fi
-
-          set +e
-          python .github/scripts/poly_adk_scripts/pull_project.py "$PROJECT_PATH" $PULL_ARGS
-          PULL_EXIT_CODE=$?
-          set -e
-
-          # Exit 2 means Dialog Studio main already matches disk — not a failure.
-          if [ $PULL_EXIT_CODE -eq 1 ]; then
-            exit 1
-          fi
-
-      # Minted here, not at the start of the job: installation tokens last an hour, and a fresh
-      # one keeps the push credential out of the environment while the ADK tooling runs.
       - name: Generate GitHub App token
         id: app-token
         uses: actions/create-github-app-token@v3
@@ -364,11 +292,18 @@ jobs:
           APP_USER_ID=$(gh api "/users/${APP_SLUG}[bot]" --jq .id)
           git config user.name "${APP_SLUG}[bot]"
           git config user.email "${APP_USER_ID}+${APP_SLUG}[bot]@users.noreply.github.com"
-          AUTH=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
-          git config "http.https://github.com/.extraheader" "AUTHORIZATION: basic $AUTH"
 
-      - name: Format and commit
+      - name: Sync projects
         env:
+          POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
+          POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
+          POLY_ADK_KEY_UK: ${{ secrets.POLY_ADK_KEY_UK }}
+          POLY_ADK_KEY_EUW: ${{ secrets.POLY_ADK_KEY_EUW }}
+          POLY_ADK_KEY_STUDIO: ${{ secrets.POLY_ADK_KEY_STUDIO }}
+          # A Poly ADK version bump regenerates _gen/, which the skip-if-unchanged
+          # check has nothing to compare against — always pull there.
+          FORCE_PULL: ${{ github.event_name == 'push' && needs.find-projects.outputs.poly_adk_version_changed == 'true' }}
+          PUSH_TOKEN: ${{ steps.app-token.outputs.token }}
           TARGET_BRANCH: ${{ inputs.branch || 'main' }}
           INPUT_DEPLOYMENT_MESSAGE: ${{ needs.resolve.outputs.deployment_message }}
           INPUT_VERSION_HASH: ${{ needs.resolve.outputs.version_hash }}
@@ -377,76 +312,261 @@ jobs:
           INPUT_ARTIFACT_VERSION: ${{ needs.resolve.outputs.artifact_version }}
           INPUT_DEPLOYMENT_TYPE: ${{ needs.resolve.outputs.deployment_type }}
           INPUT_CLIENT_ENV: ${{ needs.resolve.outputs.client_env }}
-          PROJECT: ${{ matrix.project }}
+          SHARD: ${{ strategy.job-index }}
+          SHARDS: ${{ strategy.job-total }}
         run: |
           source .venv/bin/activate
-          PROJECT_PATH="agents/${PROJECT}"
-          PROJECT_NAME="${PROJECT}"
 
-          if [ -z "$(git status --porcelain "$PROJECT_PATH")" ]; then
-            echo "No changes detected for $PROJECT_NAME"
-            exit 0
-          fi
+          # The push credential lives in an unexported variable that only the git
+          # fetches and pushes below use, so the ADK and the formatters never see it.
+          AUTH="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 -w0)"
+          unset PUSH_TOKEN
+          with_auth() { git -c "http.https://github.com/.extraheader=$AUTH" "$@"; }
 
-          echo "Changes detected, formatting and committing..."
+          # Every SHARDS-th project, so each shard gets an even share, in random
+          # order: projects that sort together and all changed then spread their
+          # commits over the run instead of every shard pushing at once.
+          PROJECTS=$(echo "$PROJECTS_JSON" | jq -r --argjson shard "$SHARD" --argjson shards "$SHARDS" \
+            'to_entries[] | select(.key % $shards == $shard) | .value' | shuf)
 
-          # The repo's formatting pass — shared with the DS parent sync check in
-          # deploy.yml, which treats "a sync would commit nothing" as in sync.
-          ./.github/scripts/format-project.sh "$PROJECT_PATH"
-          git add "$PROJECT_PATH"
+          # One line per project, for the summary job.
+          RESULTS="$RUNNER_TEMP/sync-results/shard-$SHARD.jsonl"
+          mkdir -p "$(dirname "$RESULTS")"
+          record() {
+            jq -nc --arg project "$1" --arg status "$2" --arg message "${3:-}" \
+              '{project: $project, status: $status, message: $message}' >> "$RESULTS"
+          }
 
-          echo "=== Changes ==="
-          git diff --cached --name-status -- "$PROJECT_PATH"
-          echo ""
-
-          if [ -z "$(git diff --cached --name-only)" ]; then
-            echo "No changes after formatting"
-            exit 0
-          fi
-
-          # Build commit message
-          if [ -n "$INPUT_DEPLOYMENT_MESSAGE" ]; then
-            SUBJECT_BODY="$INPUT_DEPLOYMENT_MESSAGE"
-          else
-            SUBJECT_BODY="Sync with Dialog Studio"
-          fi
-
-          # Rollback syncs are labeled revert() so they stand out from
-          # ordinary publish syncs in git log
-          if [ "$INPUT_DEPLOYMENT_TYPE" = "rollback" ]; then
-            COMMIT_TYPE="revert"
-          else
-            COMMIT_TYPE="chore"
-          fi
-          COMMIT_MSG="$COMMIT_TYPE($PROJECT_NAME): $SUBJECT_BODY"
-          if [ "$INPUT_FROM_DEPLOYMENT" = true ]; then
-            DETAILS=""
-            [ -n "$INPUT_ARTIFACT_VERSION" ] && DETAILS=$(printf '%s\nArtifact version: %s' "$DETAILS" "$INPUT_ARTIFACT_VERSION")
-            [ -n "$INPUT_DEPLOYMENT_TYPE" ] && DETAILS=$(printf '%s\nDeployment type: %s' "$DETAILS" "$INPUT_DEPLOYMENT_TYPE")
-            [ -n "$INPUT_CLIENT_ENV" ] && DETAILS=$(printf '%s\nEnvironment: %s' "$DETAILS" "$INPUT_CLIENT_ENV")
-            [ -n "$INPUT_USER_EMAIL" ] && DETAILS=$(printf '%s\nUser: %s' "$DETAILS" "$INPUT_USER_EMAIL")
-            [ -n "$INPUT_VERSION_HASH" ] && DETAILS=$(printf '%s\nVersion hash: %s' "$DETAILS" "$INPUT_VERSION_HASH")
-            [ -n "$DETAILS" ] && COMMIT_MSG=$(printf '%s\n%s' "$COMMIT_MSG" "$DETAILS")
-          fi
-
-          git commit -m "$COMMIT_MSG"
-
-          # Push with retries (handles parallel project pushes)
-          for attempt in $(seq 1 5); do
-            echo "Pushing (attempt $attempt/5)..."
-            git fetch origin "$TARGET_BRANCH" 2>&1 || true
-            if ! git rebase "origin/$TARGET_BRANCH" 2>&1; then
-              echo "::warning::Rebase failed"
-              git rebase --abort 2>&1 || true
-              exit 1
+          # The tree $1 with the directory at path $2 replaced by the tree $3,
+          # rewriting only the trees along the path.
+          swap_dir() {
+            local tree=$1 path=$2 new=$3 name=${2%%/*} old="" child
+            if [ "$name" = "$path" ]; then
+              child=$new
+            else
+              [ -n "$tree" ] && old=$(git rev-parse -q --verify "$tree:$name" || true)
+              child=$(swap_dir "$old" "${path#*/}" "$new")
             fi
-            if git push --force-with-lease origin "HEAD:$TARGET_BRANCH" 2>&1; then
-              echo "Pushed successfully"
-              exit 0
+            { if [ -n "$tree" ]; then git ls-tree "$tree" | awk -F'\t' -v n="$name" '$2 != n'; fi
+              printf '040000 tree %s\t%s\n' "$child" "$name"; } | git mktree
+          }
+
+          # Commit $3 remade on top of $1: its folder $2 swapped into $1's tree,
+          # without touching the working tree.
+          commit_on() {
+            local root
+            root=$(swap_dir "$(git rev-parse "$1^{tree}")" "$2" "$(git rev-parse "$3:$2")")
+            git log -1 --format=%B "$3" | git commit-tree "$root" -p "$1"
+          }
+
+          # Commits not pushed yet: the project's folder, its local commit, and the
+          # commit its pull started from. The other shards push to the same branch,
+          # so a push can be refused; the commits then wait here and go with the
+          # next push, which carries all of them at once.
+          QUEUED_PATHS=()
+          QUEUED_COMMITS=()
+          QUEUED_BASES=()
+          FAILED=0
+
+          # One push of every queued commit, each remade in order on the branch's
+          # current tip, so a collision can only happen between this fetch and the
+          # push. A commit whose project changed on the branch after its pull's base
+          # (another sync, a merge) is dropped: the branch's version is newer than
+          # that pull. Returns 1 if the push was refused.
+          push_queued() {
+            local tip parent i path kept=() pushed=() entry
+            if with_auth fetch -q origin "+refs/heads/$TARGET_BRANCH:refs/remotes/origin/$TARGET_BRANCH" 2>/dev/null; then
+              tip=$(git rev-parse "refs/remotes/origin/$TARGET_BRANCH")
+            else
+              tip=$(git rev-parse HEAD) # a branch the sync is creating
             fi
-            echo "Push failed, retrying..."
-            sleep 1
+            parent=$tip
+            for i in "${!QUEUED_COMMITS[@]}"; do
+              path=${QUEUED_PATHS[$i]}
+              if [ "$(git rev-parse -q --verify "$tip:$path" || true)" != "$(git rev-parse "${QUEUED_BASES[$i]}:$path")" ]; then
+                echo "::notice title=Left for the next sync — ${path#agents/}::$TARGET_BRANCH changed this project during its sync"
+                record "${path#agents/}" superseded "$TARGET_BRANCH changed this project during its sync"
+                continue
+              fi
+              parent=$(commit_on "$parent" "$path" "${QUEUED_COMMITS[$i]}")
+              kept+=("$i")
+              pushed+=("${path#agents/}=$parent")
+            done
+            local paths=() commits=() bases=()
+            for i in "${kept[@]}"; do
+              paths+=("${QUEUED_PATHS[$i]}")
+              commits+=("${QUEUED_COMMITS[$i]}")
+              bases+=("${QUEUED_BASES[$i]}")
+            done
+            QUEUED_PATHS=("${paths[@]}")
+            QUEUED_COMMITS=("${commits[@]}")
+            QUEUED_BASES=("${bases[@]}")
+            [ ${#QUEUED_COMMITS[@]} -eq 0 ] && return 0
+
+            if ! with_auth push -q origin "$parent:refs/heads/$TARGET_BRANCH" 2>&1; then
+              echo "Push refused; ${#QUEUED_COMMITS[@]} commit(s) stay queued"
+              return 1
+            fi
+            for entry in "${pushed[@]}"; do
+              echo "✓ Pushed commit for ${entry%%=*}"
+              record "${entry%%=*}" committed "${entry#*=}"
+            done
+            QUEUED_PATHS=()
+            QUEUED_COMMITS=()
+            QUEUED_BASES=()
+            # The next project's refresh brings the files up to date.
+            git reset -q --soft "$parent"
+          }
+
+          TOTAL=$(echo "$PROJECTS" | grep -c .)
+          INDEX=0
+          while IFS= read -r PROJECT; do
+            INDEX=$((INDEX + 1))
+            PROJECT_PATH="agents/${PROJECT}"
+            echo "::group::[$INDEX/$TOTAL] Sync $PROJECT"
+
+            # Start from the branch's current tip. Queued commits are kept as
+            # objects, never on HEAD, so this drops nothing but leftovers.
+            if with_auth fetch -q origin "+refs/heads/$TARGET_BRANCH:refs/remotes/origin/$TARGET_BRANCH" 2>/dev/null; then
+              git reset -q --hard "refs/remotes/origin/$TARGET_BRANCH"
+            else
+              git reset -q --hard HEAD
+            fi
+            git clean -fdq
+
+            # Dialog Studio 5xx errors are usually transient, so those are retried.
+            PULL_ARGS=()
+            [ "$FORCE_PULL" = "true" ] && PULL_ARGS+=(--force)
+            PULL_LOG="$RUNNER_TEMP/pull.log"
+            for attempt in 1 2 3; do
+              set +e
+              python .github/scripts/poly_adk_scripts/pull_project.py "$PROJECT_PATH" "${PULL_ARGS[@]}" 2>&1 | tee "$PULL_LOG"
+              PULL_EXIT_CODE=${PIPESTATUS[0]}
+              set -e
+              if [ "$PULL_EXIT_CODE" -ne 1 ] || [ "$attempt" -eq 3 ] || ! grep -qE 'API Error 50[0234]' "$PULL_LOG"; then
+                break
+              fi
+              echo "Transient Dialog Studio error, retrying (attempt $attempt/3)..."
+              sleep $((attempt * 2))
+            done
+
+            # Exit 2 means Dialog Studio main already matches disk — not a failure.
+            if [ "$PULL_EXIT_CODE" -eq 1 ]; then
+              REASON=$(grep -m1 '^Pull failed:' "$PULL_LOG" || echo "Pull failed")
+              echo "::error title=Sync failed — $PROJECT::${REASON//%/%25}"
+              record "$PROJECT" failed "$REASON"
+              FAILED=$((FAILED + 1))
+              echo "::endgroup::"
+              continue
+            fi
+
+            if [ -n "$(git status --porcelain "$PROJECT_PATH")" ]; then
+              # The repo's formatting pass — shared with the DS parent sync check in
+              # deploy.yml, which treats "a sync would commit nothing" as in sync.
+              ./.github/scripts/format-project.sh "$PROJECT_PATH"
+              git add "$PROJECT_PATH"
+            fi
+            if [ -z "$(git diff --cached --name-only)" ]; then
+              echo "No changes detected for $PROJECT"
+              record "$PROJECT" no_change
+              echo "::endgroup::"
+              continue
+            fi
+            echo "Files changed for $PROJECT:"
+            git diff --cached --stat=120 -- "$PROJECT_PATH"
+
+            # Build commit message
+            if [ -n "$INPUT_DEPLOYMENT_MESSAGE" ]; then
+              SUBJECT_BODY="$INPUT_DEPLOYMENT_MESSAGE"
+            else
+              SUBJECT_BODY="Sync with Dialog Studio"
+            fi
+
+            # Rollback syncs are labeled revert() so they stand out from
+            # ordinary publish syncs in git log
+            if [ "$INPUT_DEPLOYMENT_TYPE" = "rollback" ]; then
+              COMMIT_TYPE="revert"
+            else
+              COMMIT_TYPE="chore"
+            fi
+            COMMIT_MSG="$COMMIT_TYPE($PROJECT): $SUBJECT_BODY"
+            if [ "$INPUT_FROM_DEPLOYMENT" = true ]; then
+              DETAILS=""
+              [ -n "$INPUT_ARTIFACT_VERSION" ] && DETAILS=$(printf '%s\nArtifact version: %s' "$DETAILS" "$INPUT_ARTIFACT_VERSION")
+              [ -n "$INPUT_DEPLOYMENT_TYPE" ] && DETAILS=$(printf '%s\nDeployment type: %s' "$DETAILS" "$INPUT_DEPLOYMENT_TYPE")
+              [ -n "$INPUT_CLIENT_ENV" ] && DETAILS=$(printf '%s\nEnvironment: %s' "$DETAILS" "$INPUT_CLIENT_ENV")
+              [ -n "$INPUT_USER_EMAIL" ] && DETAILS=$(printf '%s\nUser: %s' "$DETAILS" "$INPUT_USER_EMAIL")
+              [ -n "$INPUT_VERSION_HASH" ] && DETAILS=$(printf '%s\nVersion hash: %s' "$DETAILS" "$INPUT_VERSION_HASH")
+              [ -n "$DETAILS" ] && COMMIT_MSG=$(printf '%s\n%s' "$COMMIT_MSG" "$DETAILS")
+            fi
+            git commit -q -m "$COMMIT_MSG"
+
+            # Queued and pushed straight away. HEAD goes back to the commit's
+            # base, so the next project's refresh never replays it.
+            QUEUED_PATHS+=("$PROJECT_PATH")
+            QUEUED_COMMITS+=("$(git rev-parse HEAD)")
+            QUEUED_BASES+=("$(git rev-parse HEAD~1)")
+            git reset -q --soft HEAD~1
+            push_queued || true
+            echo "::endgroup::"
+          done < <(echo "$PROJECTS")
+
+          # Commits still queued were refused while other shards pushed. Keep
+          # trying, with a random backoff growing to 8s, for up to 15 minutes.
+          attempt=0
+          deadline=$((SECONDS + 900))
+          until [ ${#QUEUED_COMMITS[@]} -eq 0 ] || push_queued; do
+            if [ $SECONDS -ge $deadline ]; then
+              for path in "${QUEUED_PATHS[@]}"; do
+                echo "::error title=Push failed — ${path#agents/}::Its commit could not be pushed for 15 minutes"
+                record "${path#agents/}" failed "its commit could not be pushed for 15 minutes"
+                FAILED=$((FAILED + 1))
+              done
+              break
+            fi
+            attempt=$((attempt + 1))
+            WAIT_MS=$((RANDOM % (1000 << (attempt < 4 ? attempt - 1 : 3))))
+            echo "Retrying ${#QUEUED_COMMITS[@]} queued commit(s) in ${WAIT_MS}ms..."
+            sleep "$((WAIT_MS / 1000)).$(printf '%03d' $((WAIT_MS % 1000)))"
           done
 
-          echo "::error::Failed to push after 5 attempts"
-          exit 1
+          [ "$FAILED" -eq 0 ]
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: sync-results-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/sync-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  summary:
+    name: Summary
+    needs: [find-projects, sync-projects]
+    if: always() && needs.find-projects.result == 'success' && needs.sync-projects.result != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.branch || 'main' }}
+          sparse-checkout: .github/scripts/sync_summary.py
+          sparse-checkout-cone-mode: false
+
+      - name: Download results
+        uses: actions/download-artifact@v7
+        # A run whose shards all died before uploading has nothing to download;
+        # the summary then reports every project as missing.
+        continue-on-error: true
+        with:
+          pattern: sync-results-*
+          path: results
+          merge-multiple: true
+
+      - name: Summarize
+        env:
+          PROJECTS_JSON: ${{ needs.find-projects.outputs.projects }}
+        run: python3 .github/scripts/sync_summary.py results
