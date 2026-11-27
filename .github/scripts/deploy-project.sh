@@ -71,7 +71,7 @@ push() {
   missing=$(check "$SCRIPTS/check_branch_exists.py" "$PROJECT_DIR" "$AS_BRANCH")
   if [ "$missing" = 1 ]; then
     echo "Branch $AS_BRANCH does not exist — checking if DS $PARENT_BRANCH is already in sync"
-    matches=$(check "$SCRIPTS/check_as_parent_matches_local.py" "$PROJECT_DIR")
+    matches=$(check "$SCRIPTS/check_as_parent_matches_local.py" "$PROJECT_DIR" --branch "$PARENT_BRANCH")
     if [ "$matches" = 0 ]; then
       echo "DS $PARENT_BRANCH already matches merged(git $PARENT_BRANCH, git branch), nothing to do"
       return
