@@ -62,7 +62,17 @@ jobs:
     env:
       CI: true
     steps:
+      # Only the repo's tooling and the changed projects are checked out, and
+      # file contents are fetched when first read.
       - uses: actions/checkout@v7
+        with:
+          filter: blob:none
+          sparse-checkout: .github
+
+      - name: Check out the changed projects
+        env:
+          PROJECTS_JSON: ${{ needs.detect-changes.outputs.projects }}
+        run: jq -r '.[] | "agents/" + .' <<<"$PROJECTS_JSON" | xargs -r git sparse-checkout add
 
       - uses: astral-sh/setup-uv@v10.3.0
 
