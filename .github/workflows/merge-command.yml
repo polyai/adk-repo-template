@@ -40,13 +40,9 @@ jobs:
       deploy: ${{ steps.gate.outputs.deploy }}
       as_merge_message: ${{ steps.gate.outputs.as_merge_message }}
     steps:
-      # gate.py fetches the base branch and the PR and finds their merge base, so
-      # every commit is fetched, but trees and files only when read.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          filter: tree:0
-          sparse-checkout: .github/scripts/merge_command
 
       - uses: actions/setup-python@v7
         with:
@@ -88,13 +84,9 @@ jobs:
       base_sha: ${{ steps.recheck.outputs.base_sha }}
       merge_base: ${{ steps.recheck.outputs.merge_base }}
     steps:
-      # gate.py fetches the base branch and the PR and finds their merge base, so
-      # every commit is fetched, but trees and files only when read.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          filter: tree:0
-          sparse-checkout: .github/scripts/merge_command
 
       - uses: actions/setup-python@v7
         with:
@@ -156,17 +148,7 @@ jobs:
       BASE_SHA: ${{ needs.wait-turn.outputs.base_sha }}
       MERGE_BASE: ${{ needs.wait-turn.outputs.merge_base }}
     steps:
-      # Only the repo's tooling and the PR's projects are checked out, here and in
-      # the merge's worktree, and file contents are fetched when first read.
       - uses: actions/checkout@v7
-        with:
-          filter: blob:none
-          sparse-checkout: .github
-
-      - name: Check out the PR's projects
-        env:
-          PROJECTS_JSON: ${{ needs.gate.outputs.projects }}
-        run: jq -r '.[] | "agents/" + .' <<<"$PROJECTS_JSON" | xargs -r git sparse-checkout add
 
       - name: Check out the merge
         run: .github/scripts/merge_command/checkout-merge.sh "$RUNNER_TEMP/merged"
@@ -230,14 +212,7 @@ jobs:
       matrix:
         project: ${{ fromJson(needs.gate.outputs.projects) }}
     steps: &deploy-steps
-      # Only the repo's tooling and this project are checked out, here and in the
-      # merge's worktree, and file contents are fetched when first read.
       - uses: actions/checkout@v7
-        with:
-          filter: blob:none
-          sparse-checkout: |
-            .github
-            agents/${{ matrix.project }}
 
       # A re-run would deploy an old merge, so it is refused here and in finish.
       - name: Check out the merge

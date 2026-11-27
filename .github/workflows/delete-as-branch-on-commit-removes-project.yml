@@ -21,13 +21,6 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
-          # Full history, but commits only: git fetches the trees a diff
-          # needs on demand. Only the files this job reads are checked out.
-          filter: tree:0
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            /.github/
-            /agents/**/project.yaml
 
       - name: Set branch name
         id: branch

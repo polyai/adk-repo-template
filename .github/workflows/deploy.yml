@@ -43,17 +43,7 @@ jobs:
     env:
       CI: true
     steps:
-      # Only the repo's tooling and the changed projects are checked out, and
-      # file contents are fetched when first read.
       - uses: actions/checkout@v7
-        with:
-          filter: blob:none
-          sparse-checkout: .github
-
-      - name: Check out the changed projects
-        env:
-          PROJECTS_JSON: ${{ needs.detect-changes.outputs.projects }}
-        run: jq -r '.[] | "agents/" + .' <<<"$PROJECTS_JSON" | xargs -r git sparse-checkout add
 
       - uses: astral-sh/setup-uv@v10.3.0
 
@@ -100,15 +90,9 @@ jobs:
     steps:
       # Depth 1 is enough: the version-protection and stale-base steps fetch the
       # extra refs they need shallowly, and the merge message reads the head commit.
-      # Only the repo's tooling and this project are checked out, and file contents
-      # are fetched when first read.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 1
-          filter: blob:none
-          sparse-checkout: |
-            .github
-            agents/${{ matrix.project }}
 
       # A re-run can't merge the PR (the queue already evicted the entry) — it can
       # only force-push a stale checkout to Dialog Studio, reverting newer work.

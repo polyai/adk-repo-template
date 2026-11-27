@@ -21,14 +21,6 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          # Full history, but commits only: git fetches the trees a diff
-          # needs on demand. Only the files this job reads are checked out.
-          filter: tree:0
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            /.github/
-            /pyproject.toml
-            /agents/**/project.yaml
 
       - name: Detect changed projects
         id: detect
@@ -62,17 +54,7 @@ jobs:
     env:
       CI: true
     steps:
-      # Only the repo's tooling and the changed projects are checked out, and
-      # file contents are fetched when first read.
       - uses: actions/checkout@v7
-        with:
-          filter: blob:none
-          sparse-checkout: .github
-
-      - name: Check out the changed projects
-        env:
-          PROJECTS_JSON: ${{ needs.detect-changes.outputs.projects }}
-        run: jq -r '.[] | "agents/" + .' <<<"$PROJECTS_JSON" | xargs -r git sparse-checkout add
 
       - uses: astral-sh/setup-uv@v10.3.0
 
@@ -108,12 +90,6 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.head_ref }}
-          # Only the repo's tooling and this project are checked out, and file
-          # contents are fetched when first read.
-          filter: blob:none
-          sparse-checkout: |
-            .github
-            agents/${{ matrix.project }}
 
       - uses: astral-sh/setup-uv@v10.3.0
 
