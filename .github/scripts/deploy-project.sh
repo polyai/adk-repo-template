@@ -63,21 +63,6 @@ check_base_current() {
   echo "$PARENT_BRANCH advanced to $parent_sha but left agents/$PROJECT untouched"
 }
 
-# Start Sync Projects for this project, so git catches up with Dialog Studio and the
-# PR passes the parent check once retried. Sync Projects pulls Dialog Studio main, so
-# this only applies when the PR merges into main.
-start_sync() {
-  local account_id project_id
-  account_id=$(yq -r '.account_id // ""' "$PROJECT_DIR/project.yaml")
-  project_id=$(yq -r '.project_id // ""' "$PROJECT_DIR/project.yaml")
-  if [ "$PARENT_BRANCH" = main ] && [ -n "$account_id" ] && [ -n "$project_id" ] &&
-    gh workflow run sync_projects.yml --ref main -f account_id="$account_id" -f project_id="$project_id"; then
-    echo "Started Sync Projects for this project. Once it has pushed to main: $RETRY_HINT."
-  else
-    echo "Run the Sync Projects workflow for this project. $RETRY_HINT."
-  fi
-}
-
 push() {
   python "$SCRIPTS/check_poly_adk_version_protection.py" \
     "$(jq -cn --arg p "$PROJECT" '[$p]')" "$AS_BRANCH" --branch-ref "$BRANCH_REF"
@@ -116,7 +101,7 @@ push() {
       git worktree remove --force "$worktree"
       if [ "$code" = 1 ]; then
         echo "::error::DS branch $PARENT_BRANCH is not in sync with git $PARENT_BRANCH for $PROJECT."
-        start_sync
+        echo "Run the Sync Projects workflow for this project. $RETRY_HINT."
         echo "To bypass, add the skip-as-sync-check label. $RETRY_HINT."
         exit 1
       fi

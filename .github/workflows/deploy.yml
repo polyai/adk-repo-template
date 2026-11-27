@@ -73,10 +73,6 @@ jobs:
     needs: [detect-changes, lint-and-test]
     if: needs.detect-changes.outputs.has_projects == 'true'
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-      actions: write # start Sync Projects when Dialog Studio is ahead of git
     env:
       POLY_ADK_KEY: ${{ secrets.POLY_ADK_KEY }}
       POLY_ADK_KEY_US: ${{ secrets.POLY_ADK_KEY_US }}
